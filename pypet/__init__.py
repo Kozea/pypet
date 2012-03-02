@@ -34,10 +34,10 @@ class Measure(object):
         self.agg = agg
         self.name = name
 
-    @property
-    def aggregate(self):
+    def aggregate(self, aggregate=None):
         """Returns the aggregated expression of this measure."""
-        return self.agg(self.expression).label(self.name)
+        expression = aggregate.find_expression(self)
+        return self.agg(expression).label(self.name)
 
 
 class CutPoint(object):
@@ -54,13 +54,14 @@ class Member(CutPoint):
         self.level = level
         self.label_expr = _literal_as_binds(name)
 
-    def _add_to_query(self, query, cube_query):
+    def _add_to_query(self, query, cuboid):
         """Appends this member to the query as a cutpoint.
 
         This is equivalent to a filter.
         """
+        expression = cuboid.find_level(self.level)
         return (query.column(self.label_expr.label(self.level.dimension.name))
-                    .where(self.level.dim_column == self.name))
+                    .where(expression == self.name))
 
     @property
     def dimension(self):
@@ -71,9 +72,11 @@ class Member(CutPoint):
 class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
-    def __init__(self, name, dim_column=None, label_expr=None):
+    def __init__(self, name, dim_column=None, label_expr=None, function=lambda
+            x: x):
         self.name = name
         self.dim_column = dim_column
+        self.function = function
         self.label_expr = label_expr if label_expr is not None else dim_column
         self.child_level = None
         self.parent_level = None
@@ -93,12 +96,14 @@ class Level(CutPoint):
         """Returns this level dimension."""
         return self.hierarchy.dimension
 
-    def _add_to_query(self, query, cube_query):
+    def _add_to_query(self, query, cuboid=None):
         """Appends this level to a query as a cutpoint.
         """
-        query = self._join(query, cube_query.cuboid.selectable())
-        return (query.column(self.dim_column.label(self.dimension.name))
-                .group_by(self.dim_column))
+        expression = cuboid.find_level(self)
+        if expression == self.function(self.dim_column):
+            query = self._join(query, cuboid.selectable)
+        return (query.column(expression.label(self.dimension.name))
+                .group_by(expression))
 
     def _join(self, query, left):
         """Recursively builds a join against this level's dimensions table."""
@@ -158,8 +163,9 @@ class _AllLevel(Level):
         self.label = label
         self.name = name
         self.label_expr = _literal_as_binds(label)
+        self.parent_level = None
 
-    def _add_to_query(self, query, cube_query):
+    def _add_to_query(self, query, cuboid):
         return query.column(self.label_expr.label(self.dimension.name))
 
 
@@ -227,11 +233,16 @@ class Query(_Generative):
         self.measures = measures
 
     def _as_sql(self):
-        query = self.cuboid.selectable().select()
-        query = query.with_only_columns([measure.aggregate
-            for measure in self.measures])
+        agg_scores = ((agg, agg.score(self.cuts.values()))
+                for agg in self.cuboid.aggregates)
+        best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
+                if scorex >= scorey
+                else (y, scorey), agg_scores, (self.cuboid, 0))
+        query = best_agg.selectable.select()
+        query = query.with_only_columns([measure.aggregate(best_agg)
+            for measure in self.measures.values()])
         for dim, member in self.cuts.items():
-            query = member._add_to_query(query, self)
+            query = member._add_to_query(query, best_agg)
         return query
 
     @_generative
@@ -244,14 +255,61 @@ class Query(_Generative):
         return ResultProxy(self.cuts, self._as_sql().execute())
 
 
+class Aggregate(object):
+
+    def __init__(self, selectable, levels, measures):
+        self.selectable = selectable
+        self.measures = measures
+        self.levels = levels
+
+    def _score(self, level):
+        for agglevel in self.levels:
+            if agglevel.dimension == level.dimension:
+                base_level = agglevel
+                score = 1
+                while(base_level is not None):
+                    if base_level == level:
+                        return score
+                    base_level = base_level.parent_level
+                    score *= 0.5
+        return -1
+
+    def score(self, levels):
+        scores = [self._score(level) for level in levels]
+        if any(score < 0 for score in scores):
+            return -1
+        if len(levels) < len(self.levels):
+            return -1
+        return sum(scores) - (0.3 *
+            (len(self.levels) - len(levels)))
+
+    def find_expression(self, measure):
+        return self.measures[measure]
+
+    def find_level(self, level):
+        for agglevel in self.levels:
+            if agglevel.dimension == level.dimension:
+                expression = self.levels.get(agglevel)
+                if agglevel == level:
+                    return expression
+                else:
+                    # Superior level, must apply the func
+                    return level.function(expression)
+        raise ValueError("Aggregate (%s) is not suitable for level %s[%s]" %
+                (self.table.name, level.dimension.name, level.name))
+
+
 class Cube(DictOrListMixin):
 
     _children_attr = 'levels'
 
-    def __init__(self, metadata, fact_table, dimensions, measures):
+    def __init__(self, metadata, fact_table, dimensions, measures,
+            aggregates=None):
         self.dimensions = dimensions
-        self.measures = measures
+        self.measures = OrderedDict((measure.name, measure) for measure in
+                measures)
         self.table = fact_table
+        self.aggregates = aggregates or []
 
     @property
     def query(self):
@@ -259,6 +317,7 @@ class Cube(DictOrListMixin):
             self.dimensions]),
             self.measures)
 
+    @property
     def selectable(self):
         return self.table
 
@@ -269,6 +328,12 @@ class Cube(DictOrListMixin):
     @property
     def _children_dict(self):
         return {dim.name: dim.default_member for dim in self.dimensions}
+
+    def find_expression(self, measure):
+        return measure.expression
+
+    def find_level(self, level):
+        return level.function(level.dim_column)
 
     def __getitem__(self, key):
         if isinstance(key, int):

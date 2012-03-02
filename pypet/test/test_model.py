@@ -1,38 +1,56 @@
-from pypet import Cube, Dimension, Hierarchy, Level, Measure, Member
+from pypet import Cube, Dimension, Hierarchy, Level, Measure, Member, Aggregate
+from pypet.util import TimeDimension
 from sqlalchemy.schema import MetaData, Table, Column, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy import create_engine, types
 from itertools import cycle, izip
 from datetime import date
 
+
 class TestCase(object):
 
     def setUp(self):
-        engine = create_engine('sqlite:///')
+        engine = create_engine('postgresql://pypet@localhost/pypet', echo=True)
         self.metadata = MetaData(bind=engine)
+
         self.store_table = Table('store', self.metadata,
                 Column('store_id', types.Integer, primary_key=True),
                 Column('store_name', types.String),
                 Column('store_region', types.Integer,
                     ForeignKey('region.region_id')))
+
         self.region_table = Table('region', self.metadata,
                 Column('region_id', types.Integer, primary_key=True),
                 Column('region_name', types.String))
+
         self.product_table = Table('product', self.metadata,
                 Column('product_id', types.Integer, primary_key=True),
                 Column('product_name', types.String),
                 Column('product_category_id', types.Integer,
                    ForeignKey('product_category.product_category_id')))
+
         self.product_category_table = Table('product_category', self.metadata,
                 Column('product_category_id', types.Integer, primary_key=True),
                 Column('product_category_name', types.String))
+
         self.facts_table = Table('facts_table', self.metadata,
-                Column('store_id', types.Integer, ForeignKey('store.store_id')),
+                Column('store_id', types.Integer,
+                    ForeignKey('store.store_id')),
                 Column('date', types.Date),
                 Column('product_id', types.Integer,
                     ForeignKey('product.product_id')),
                 Column('price', types.Integer),
                 Column('qty', types.Integer))
+
+        self.agg_by_month_table = Table('agg_by_month', self.metadata,
+                Column('store_id', types.Integer,
+                    ForeignKey('store.store_id')),
+                Column('time_month', types.Date),
+                Column('product_id', types.Integer,
+                    ForeignKey('product.product_id')),
+                Column('price', types.Integer),
+                Column('qty', types.Integer))
+
         self.metadata.create_all()
 
         self.store_dim = Dimension('store', [
@@ -46,14 +64,8 @@ class TestCase(object):
                     .product_category_name),
                 Level('product', self.product_table.c.product_name)])])
 
-        self.time_dim = Dimension('time', [
-            Hierarchy('default', [
-                Level('year', func.strftime('%Y',
-                    self.facts_table.c.date)),
-                Level('month', func.strftime('%Y %m',
-                    self.facts_table.c.date)),
-                Level('day', func.strftime('%Y %m %d',
-                    self.facts_table.c.date))])])
+        self.time_dim = TimeDimension('time', self.facts_table.c.date,
+                ['year', 'month', 'day'])
 
         self.cube = Cube(self.metadata, self.facts_table, [self.store_dim,
             self.product_dim, self.time_dim], [
@@ -89,7 +101,6 @@ class TestCase(object):
         self.product_category_table.insert({
             'product_category_id': 2,
             'product_category_name': 'Shoes'}).execute()
-
 
         self.product_table.insert({
             'product_id': 1,
@@ -127,6 +138,18 @@ class TestCase(object):
                 'date': next(values),
                 'qty': next(quantities),
                 'price': next(prices)}).execute()
+        results = (self.facts_table.select().with_only_columns([
+                func.avg(self.facts_table.c.price),
+                func.sum(self.facts_table.c.qty),
+                self.facts_table.c.product_id,
+                self.facts_table.c.store_id,
+                func.date_trunc('month', self.facts_table.c.date)])
+            .group_by(func.date_trunc('month', self.facts_table.c.date),
+                self.facts_table.c.product_id,
+                self.facts_table.c.store_id)
+            .execute())
+        for res in results:
+            self.agg_by_month_table.insert().execute(dict(res))
 
     def test_dimensions(self):
         assert len(self.cube.dimensions) == 3
@@ -143,7 +166,8 @@ class TestCase(object):
             ' sum(facts_table.qty) AS "Quantity", sum(facts_table.price *'
             ' facts_table.qty)'
             ' AS "Price",'
-            ' ? AS store, ? AS product, ? AS time '
+            ' %(param_1)s AS store, %(param_2)s AS product,'
+            ' %(param_3)s AS time '
             '\nFROM facts_table')
         assert unicode(query._as_sql()) == expected
         query = query.slice(self.cube['store']['region'])
@@ -151,7 +175,7 @@ class TestCase(object):
             ' sum(facts_table.qty) AS "Quantity", sum(facts_table.price *'
             ' facts_table.qty)'
             ' AS "Price", region.region_name AS store,'
-            ' ? AS product, ? AS time '
+            ' %(param_1)s AS product, %(param_2)s AS time '
             '\nFROM facts_table JOIN store ON store.store_id ='
             ' facts_table.store_id JOIN region ON region.region_id ='
             ' store.store_region GROUP BY region.region_name')
@@ -160,12 +184,12 @@ class TestCase(object):
             ' sum(facts_table.qty) AS "Quantity", sum(facts_table.price *'
             ' facts_table.qty)'
             ' AS "Price", region.region_name AS store,'
-            ' ? AS product,'
-            ' strftime(?, facts_table.date) AS time '
+            ' %(param_1)s AS product,'
+            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time '
             '\nFROM facts_table JOIN store ON store.store_id ='
             ' facts_table.store_id JOIN region ON region.region_id ='
             ' store.store_region GROUP BY region.region_name,'
-            ' strftime(?, facts_table.date)')
+            ' date_trunc(%(date_trunc_1)s, facts_table.date)')
         query = query.slice(self.cube['time']['year'])
         assert unicode(query._as_sql()) == expected
         second_query = query.slice(self.cube['product']['category'])
@@ -175,7 +199,7 @@ class TestCase(object):
             ' AS "Price",'
             ' region.region_name AS store,'
             ' product_category.product_category_name AS product,'
-            ' strftime(?, facts_table.date) AS time '
+            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time '
             '\nFROM facts_table'
             ' JOIN store ON store.store_id ='
             ' facts_table.store_id JOIN region ON region.region_id ='
@@ -187,7 +211,7 @@ class TestCase(object):
             ' GROUP BY'
             ' region.region_name,'
             ' product_category.product_category_name,'
-            ' strftime(?, facts_table.date)'
+            ' date_trunc(%(date_trunc_1)s, facts_table.date)'
         )
         assert unicode(second_query._as_sql()) == expected
         query = query.slice(self.cube['product']['category']['product'])
@@ -197,7 +221,7 @@ class TestCase(object):
             ' AS "Price",'
             ' region.region_name AS store,'
             ' product.product_name AS product,'
-            ' strftime(?, facts_table.date) AS time '
+            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time '
             '\nFROM facts_table'
             ' JOIN store ON store.store_id ='
             ' facts_table.store_id JOIN region ON region.region_id ='
@@ -207,7 +231,7 @@ class TestCase(object):
             ' GROUP BY'
             ' region.region_name,'
             ' product.product_name,'
-            ' strftime(?, facts_table.date)'
+            ' date_trunc(%(date_trunc_1)s, facts_table.date)'
         )
         assert unicode(query._as_sql()) == expected
 
@@ -218,9 +242,62 @@ class TestCase(object):
         assert results.keys() == ['All']
         assert results['All'].keys() == ['All']
         assert results['All']['All'].keys() == ['All']
-        assert results['All']['All']['All'].Price == 64100
+        assert results['All']['All']['All'].Price == 56000
         results = self.cube.query.slice(self.cube['time']['year']).execute()
-        assert results['All']['All'].keys() == [u'2009', u'2010', u'2011']
+        assert ([key.year for key in results['All']['All'].keys()] ==
+                [2009, 2010, 2011])
+
+    def test_agg(self):
+        aggregate = Aggregate(self.agg_by_month_table, {
+                    self.cube['store']['region']['store']:
+                        self.agg_by_month_table.c.store_id,
+                    self.cube['product']['category']['product']:
+                        self.agg_by_month_table.c.product_id,
+                    self.cube['time']['year']['month']:
+                        self.agg_by_month_table.c.time_month},
+                    {self.cube.measures['Unit Price']:
+                        self.agg_by_month_table.c.price,
+                     self.cube.measures['Quantity']:
+                        self.agg_by_month_table.c.qty,
+                     self.cube.measures['Price']:
+                        self.agg_by_month_table.c.price *
+                        self.agg_by_month_table.c.qty})
+
+        print aggregate.score([self.cube['store']['region'],
+            self.cube['time']['year']['month'],
+            self.cube['product']['category']['product']])
+        self.cube.aggregates.append(aggregate)
+        query = self.cube.query.slice(self.cube['time']['year']['month'])
+        expected = ('SELECT avg(agg_by_month.price) AS "Unit Price",'
+            ' sum(agg_by_month.qty) AS "Quantity",'
+            ' sum(agg_by_month.price * agg_by_month.qty) AS "Price",'
+            ' %(param_1)s AS store,'
+            ' %(param_2)s AS product,'
+            ' agg_by_month.time_month AS time'
+            ' \nFROM agg_by_month'
+            ' GROUP BY agg_by_month.time_month')
+        assert unicode(query._as_sql()) == expected
+        query = self.cube.query.slice(self.cube['time']['year'])
+        expected = ('SELECT avg(agg_by_month.price) AS "Unit Price",'
+            ' sum(agg_by_month.qty) AS "Quantity",'
+            ' sum(agg_by_month.price * agg_by_month.qty) AS "Price",'
+            ' %(param_1)s AS store,'
+            ' %(param_2)s AS product,'
+            ' date_trunc(%(date_trunc_1)s, agg_by_month.time_month) AS time'
+            ' \nFROM agg_by_month'
+            ' GROUP BY date_trunc(%(date_trunc_1)s, agg_by_month.time_month)')
+        assert unicode(query._as_sql()) == expected
+        query = self.cube.query.slice(self.cube['time']['year']['month']['day'])
+        expected = (u'SELECT avg(facts_table.price) AS "Unit Price",'
+            ' sum(facts_table.qty) AS "Quantity", sum(facts_table.price *'
+            ' facts_table.qty)'
+            ' AS "Price", %(param_1)s AS store,'
+            ' %(param_2)s AS product,'
+            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time '
+            '\nFROM facts_table'
+            ' GROUP BY date_trunc(%(date_trunc_1)s, facts_table.date)')
+        assert unicode(query._as_sql()) == expected
+
 
     def tearDown(self):
         self.metadata.drop_all()
