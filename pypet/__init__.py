@@ -96,7 +96,7 @@ class Level(CutPoint):
         """Returns this level dimension."""
         return self.hierarchy.dimension
 
-    def _add_to_query(self, query, cuboid=None):
+    def _add_to_query(self, query, cuboid):
         """Appends this level to a query as a cutpoint.
         """
         expression = cuboid.find_level(self)
@@ -275,6 +275,8 @@ class Aggregate(object):
         return -1
 
     def score(self, levels):
+        levels = [level if isinstance(level, Level) else level.level
+                for level in levels]
         scores = [self._score(level) for level in levels]
         if any(score < 0 for score in scores):
             return -1
