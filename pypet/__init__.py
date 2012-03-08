@@ -409,21 +409,26 @@ class CubeProxy(object):
         self.cuboid = cuboid
         self.selectable = self.cuboid.selectable
         self.selects = []
-        self.base_query = None
         self.need_subquery = False
         self.measures = OrderedDict()
         self.rel_selects = []
         self._joined_levels = []
+        self.base_query = None
         for key, measure in measures.items():
             self.measures[key] = self._extract_relative_measure(measure)
         self.levels = levels
         # Clear out all columns, but keep the from clause
+        self.base_query = (self.selectable.select()
+                            .with_only_columns([])
+                            .select_from(self.selectable))
+
         self.selectable = (self.selectable.select()
                             .with_only_columns([])
                             .select_from(self.selectable))
+
         for member in self._joined_levels:
             self.selectable = member._join(self.selectable,
-                    self.selectable)
+                    self.cuboid.selectable)
 
         if self.need_subquery:
             for dim, member in self.levels.items():
