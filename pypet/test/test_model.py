@@ -212,7 +212,8 @@ class TestCase(object):
         expected = (u'SELECT'
             ' region.region_name AS store,'
             ' %(param_1)s AS product,'
-            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time,'
+            ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
+            ' facts_table.date)) AS time,'
             ' avg(facts_table.price) AS "Unit Price",'
             ' sum(facts_table.qty) AS "Quantity",'
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
@@ -226,7 +227,8 @@ class TestCase(object):
         expected = (u'SELECT'
             ' region.region_name AS store,'
             ' product_category.product_category_name AS product,'
-            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time,'
+            ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
+            ' facts_table.date)) AS time,'
             ' avg(facts_table.price) AS "Unit Price",'
             ' sum(facts_table.qty) AS "Quantity",'
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
@@ -248,7 +250,8 @@ class TestCase(object):
         expected = (u'SELECT'
             ' region.region_name AS store,'
             ' product.product_name AS product,'
-            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time,'
+            ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
+            ' facts_table.date)) AS time,'
             ' avg(facts_table.price) AS "Unit Price",'
             ' sum(facts_table.qty) AS "Quantity",'
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
@@ -274,11 +277,9 @@ class TestCase(object):
         assert results['All']['All'].keys() == ['All']
         assert results['All']['All']['All'].Price == 56000
         results = self.cube.query.slice(self.cube['time']['year']).execute()
-        assert ([key.year for key in results['All']['All'].keys()] ==
-                [2009, 2010, 2011])
+        assert results['All']['All'].keys() == [2009, 2010, 2011]
         results = self.cube.query.axis(self.cube['time']['year']).execute()
-        assert ([key.year for key in results.keys()] ==
-                [2009, 2010, 2011])
+        assert results.keys() == [2009, 2010, 2011]
 
     def test_measures(self):
         computed = self.cube.measures['Price']
@@ -347,7 +348,8 @@ class TestCase(object):
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
-            ' date_trunc(%(date_trunc_1)s, agg_by_month.time_month) AS time,'
+            ' EXTRACT(month FROM date_trunc(%(date_trunc_1)s,'
+            ' agg_by_month.time_month)) AS time,'
             ' avg(agg_by_month.price) AS "Unit Price",'
             ' sum(agg_by_month.qty) AS "Quantity",'
             ' sum(agg_by_month.price * agg_by_month.qty) AS "Price"'
@@ -358,7 +360,8 @@ class TestCase(object):
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
-            ' date_trunc(%(date_trunc_1)s, agg_by_month.time_month) AS time,'
+            ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
+            ' agg_by_month.time_month)) AS time,'
             ' avg(agg_by_month.price) AS "Unit Price",'
             ' sum(agg_by_month.qty) AS "Quantity",'
             ' sum(agg_by_month.price * agg_by_month.qty) AS "Price"'
@@ -370,7 +373,8 @@ class TestCase(object):
         expected = (u'SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
-            ' date_trunc(%(date_trunc_1)s, facts_table.date) AS time,'
+            ' EXTRACT(day FROM date_trunc(%(date_trunc_1)s,'
+            ' facts_table.date)) AS time,'
             ' avg(facts_table.price) AS "Unit Price",'
             ' sum(facts_table.qty) AS "Quantity", sum(facts_table.price *'
             ' facts_table.qty)'
@@ -398,8 +402,8 @@ class TestCase(object):
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
-            ' date_trunc(%(date_trunc_1)s, agg_by_year_region.time_year)'
-            ' AS time,'
+            ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
+            ' agg_by_year_region.time_year)) AS time,'
             ' avg(agg_by_year_region.price) AS "Unit Price",'
             ' sum(agg_by_year_region.qty) AS "Quantity",'
             ' sum(agg_by_year_region.price * agg_by_year_region.qty)'

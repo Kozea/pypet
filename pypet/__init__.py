@@ -219,8 +219,6 @@ class Level(CutPoint):
 
     def _join(self, query, left):
         """Recursively builds a join against this level's dimensions table."""
-        if not hasattr(self.dim_column, 'table'):
-            return query
         if self.child_level:
             query = self.child_level._join(query, self.dim_column.table)
         # Test if our dimension table is already in the joins
@@ -275,9 +273,10 @@ class Level(CutPoint):
 
 class ComputedLevel(Level):
 
-    def __init__(self, name, dim_column=None, label_func=None, function=lambda
-            x:x):
-        super(ComputedLevel, self).__init__(name, dim_column, )
+    def __init__(self, name, dim_column=None, label_expr=None,
+            function=lambda x: x):
+        super(ComputedLevel, self).__init__(name, dim_column,
+                label_expr=label_expr)
         self.function = function
 
     def column(self, base):

@@ -1,5 +1,5 @@
 from pypet import ComputedLevel, Hierarchy, Dimension
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, extract
 
 
 class TimeLevel(ComputedLevel):
@@ -11,8 +11,11 @@ class TimeLevel(ComputedLevel):
         def partial_trunc(column):
             return func.date_trunc(time_slice, column)
 
+        def partial_extract(column):
+            return extract(time_slice, column)
+
         super(TimeLevel, self).__init__(name, dim_column,
-                function=partial_trunc)
+                function=partial_trunc, label_expr=partial_extract)
 
 
 class TimeDimension(Dimension):
