@@ -373,6 +373,7 @@ class Query(_Generative):
         self.cuboid = cuboid
         self.cuts = cuts
         self.measures = measures
+        self.filters = []
 
     def _as_sql(self):
         agg_scores = ((agg, agg.score(self.cuts.values()))
@@ -380,8 +381,12 @@ class Query(_Generative):
         best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
                 if scorex >= scorey
                 else (y, scorey), agg_scores, (self.cuboid, 0))
-        cuboid = CubeProxy(best_agg, self.cuts, self.measures)
+        cuboid = CubeProxy(best_agg, self.cuts, self.measures, self.filters)
         return cuboid.selectable
+
+    @_generative
+    def filter(self, member):
+        self.filters.append(member)
 
     @_generative
     def slice(self, level):
@@ -405,12 +410,13 @@ class Query(_Generative):
 
 class CubeProxy(object):
 
-    def __init__(self, cuboid, levels, measures):
+    def __init__(self, cuboid, levels, measures, filters):
         self.cuboid = cuboid
         self.selectable = self.cuboid.selectable
         self.selects = []
         self.need_subquery = False
         self.measures = OrderedDict()
+        self.filters = filters
         self.rel_selects = []
         self._joined_levels = []
         self.base_query = None
@@ -429,6 +435,10 @@ class CubeProxy(object):
         for member in self._joined_levels:
             self.selectable = member._join(self.selectable,
                     self.cuboid.selectable)
+
+        for filter in self.filters:
+            label, expr = self.find_level(filter.level)
+            self.selectable = self.selectable.where(expr == filter.name)
 
         if self.need_subquery:
             for dim, member in self.levels.items():

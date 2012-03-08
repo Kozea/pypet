@@ -412,8 +412,7 @@ class TestCase(object):
             ' GROUP BY'
             ' date_trunc(%(date_trunc_1)s, agg_by_year_region.time_year)')
         assert unicode(query._as_sql()) == expected
-        query = self.cube.query.slice(self.cube['time'][date(year=2010,
-            month=1, day=1)])
+        query = self.cube.query.slice(self.cube['time']['2010'])
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
@@ -427,6 +426,22 @@ class TestCase(object):
             ' date_trunc(%(date_trunc_1)s, agg_by_year_region.time_year) ='
             ' %(date_trunc_2)s')
         assert unicode(query._as_sql()) == expected
+
+
+    def test_filters(self):
+        query = self.cube.query.filter(self.cube['time'][date(year=2010,
+            month=1, day=1)])
+        assert query.execute()['All']['All']['All']['Price'] == 20000
+        computed = self.cube.measures['Price']
+        query = (self.cube.query.measure((computed /
+                computed.over(self.cube['store']['region']) *
+                100).label('CA_percent_by_region'))
+            .axis(self.cube['store']['region']['store'])
+            .filter(self.cube['store']['Europe']))
+        result = query.execute()
+        assert result.keys() == [u'ACME.eu', u'Food Mart.eu']
+        assert result['ACME.eu']['CA_percent_by_region'] == 24.1379310344828
+
 
     def tearDown(self):
         self.metadata.drop_all()
