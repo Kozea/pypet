@@ -252,10 +252,6 @@ class Level(CutPoint):
         if query._from_obj:
             froms = query._from_obj
             base_clause = froms[0]
-        else:
-            # It's a very simple query yet
-            froms = query._froms
-            base_clause = froms[replace_clause_index]
         if orig_clause is not None:
             # Replace the query
             query._from_obj = OrderedSet(
@@ -524,8 +520,6 @@ class CubeProxy(object):
             return self.measures[measure.name]._raw_expression(self.cuboid)
         elif self.base_query is not None and measure.name in self.base_query.c:
             return self.base_query.c[measure.name]
-        elif measure.name in self.selectable.c:
-            return self.selectable.c[measure.name]
         else:
             return self.cuboid.find_expression(measure)
 

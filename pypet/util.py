@@ -22,5 +22,5 @@ class TimeDimension(Dimension):
 
     def __init__(self, name, dim_column, time_levels):
         levels = [TimeLevel(level, dim_column) for level in time_levels]
-        return super(TimeDimension, self).__init__(name, [Hierarchy('default',
+        super(TimeDimension, self).__init__(name, [Hierarchy('default',
             levels)])
