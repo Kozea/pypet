@@ -483,6 +483,42 @@ class TestCase(object):
             ' %(date_trunc_2)s')
         assert unicode(query._as_sql()) == expected
 
+        query = self.cube.query.slice(self.cube['store']['region'])
+        expected = (u'SELECT'
+            ' region.region_name AS store,'
+            ' %(param_1)s AS product,'
+            ' %(param_2)s AS time,'
+            ' avg(agg_by_year_country.price) AS "Unit Price",'
+            ' sum(agg_by_year_country.qty) AS "Quantity",'
+            ' sum(agg_by_year_country.price * agg_by_year_country.qty)'
+            ' AS "Price"'
+            ' \nFROM agg_by_year_country'
+            ' JOIN country ON country.country_id ='
+            ' agg_by_year_country.store_country'
+            ' JOIN region ON region.region_id = country.region_id'
+            ' GROUP BY region.region_name')
+        assert unicode(query._as_sql()) == expected
+
+        query = self.cube.query.axis(self.cube['store']['region'],
+                self.cube['product']['category']['product'])
+
+        expected = (u'SELECT'
+            ' region.region_name AS store,'
+            ' product.product_name AS product,'
+            ' avg(agg_by_year_country.price) AS "Unit Price",'
+            ' sum(agg_by_year_country.qty) AS "Quantity",'
+            ' sum(agg_by_year_country.price * agg_by_year_country.qty)'
+            ' AS "Price"'
+            ' \nFROM agg_by_year_country'
+            ' JOIN country ON country.country_id ='
+            ' agg_by_year_country.store_country'
+            ' JOIN region ON region.region_id = country.region_id'
+            ' JOIN product ON product.product_id ='
+            ' agg_by_year_country.product_id'
+            ' GROUP BY region.region_name, product.product_name')
+        assert unicode(query._as_sql()) == expected
+
+
     def test_filters(self):
         query = self.cube.query.filter(self.cube['time'][date(year=2010,
             month=1, day=1)])

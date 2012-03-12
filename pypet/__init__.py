@@ -220,9 +220,17 @@ class Level(CutPoint):
 
     def _join(self, query, left):
         """Recursively builds a join against this level's dimensions table."""
-        if self.child_level:
-            query = self.child_level._join(query, self.dim_column.table)
-        # Test if our dimension table is already in the joins
+        orig_clause = None
+        # Check if we need to call the children.
+        for index, _from in enumerate(query._froms):
+            for fk in _from.foreign_keys:
+                if fk.references(self.dim_column.table):
+                    replace_clause_index, orig_clause = index, _from
+                    break
+        if orig_clause is None:
+            if self.child_level:
+                query = self.child_level._join(query, self.dim_column.table)
+            # Test if our dimension table is already in the joins
         replace_clause_index, orig_clause = sql_util.find_join_source(
                                                 query._froms,
                                                 self.dim_column.table)
