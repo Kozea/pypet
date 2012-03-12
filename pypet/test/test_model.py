@@ -16,7 +16,13 @@ class TestCase(object):
         self.store_table = Table('store', self.metadata,
                 Column('store_id', types.Integer, primary_key=True),
                 Column('store_name', types.String),
-                Column('store_region', types.Integer,
+                Column('country_id', types.Integer,
+                    ForeignKey('country.country_id')))
+
+        self.country_table = Table('country', self.metadata,
+                Column('country_id', types.Integer, primary_key=True),
+                Column('country_name', types.String),
+                Column('region_id', types.Integer,
                     ForeignKey('region.region_id')))
 
         self.region_table = Table('region', self.metadata,
@@ -51,10 +57,10 @@ class TestCase(object):
                 Column('price', types.Float),
                 Column('qty', types.Integer))
 
-        self.agg_by_year_region_table = Table('agg_by_year_region',
+        self.agg_by_year_country_table = Table('agg_by_year_country',
                 self.metadata,
-                Column('store_region', types.Integer,
-                    ForeignKey('region.region_id')),
+                Column('store_country', types.Integer,
+                    ForeignKey('country.country_id')),
                 Column('time_year', types.Date),
                 Column('product_id', types.Integer,
                     ForeignKey('product.product_id')),
@@ -66,6 +72,7 @@ class TestCase(object):
         self.store_dim = Dimension('store', [
             Hierarchy('default', [
                 Level('region', self.region_table.c.region_name),
+                Level('country', self.country_table.c.country_name),
                 Level('store', self.store_table.c.store_name)])])
 
         self.product_dim = Dimension('product', [
@@ -87,28 +94,67 @@ class TestCase(object):
 
         self.region_table.insert({'region_id': 1, 'region_name':
             'Europe'}).execute()
+
+        self.country_table.insert({'region_id': 1, 'country_name':
+            'France', 'country_id': 1}).execute()
+
+        self.country_table.insert({'region_id': 1, 'country_name':
+            'Germany', 'country_id': 2}).execute()
+
         self.region_table.insert({'region_id': 2, 'region_name':
-            'USA'}).execute()
+            'America'}).execute()
+
+        self.country_table.insert({'region_id': 2, 'country_name':
+            'USA', 'country_id': 3}).execute()
+
+        self.country_table.insert({'region_id': 2, 'country_name':
+            'Canada', 'country_id': 4}).execute()
+
+
         self.store_table.insert({
             'store_id': 1,
-            'store_name': 'ACME.eu',
-            'store_region': 1}).execute()
+            'store_name': 'ACME.fr',
+            'country_id': 1}).execute()
+
         self.store_table.insert({
             'store_id': 2,
-            'store_name': 'Food Mart.eu',
-            'store_region': 1}).execute()
+            'store_name': 'ACME.de',
+            'country_id': 2}).execute()
+
         self.store_table.insert({
             'store_id': 3,
-            'store_name': 'ACME.us',
-            'store_region': 2}).execute()
+            'store_name': 'Food Mart.fr',
+            'country_id': 1}).execute()
+
         self.store_table.insert({
             'store_id': 4,
+            'store_name': 'Food Mart.de',
+            'country_id': 2}).execute()
+
+        self.store_table.insert({
+            'store_id': 5,
+            'store_name': 'ACME.us',
+            'country_id': 3}).execute()
+
+        self.store_table.insert({
+            'store_id': 6,
             'store_name': 'Food Mart.us',
-            'store_region': 2}).execute()
+            'country_id': 3}).execute()
+
+        self.store_table.insert({
+            'store_id': 7,
+            'store_name': 'ACME.ca',
+            'country_id': 4}).execute()
+
+        self.store_table.insert({
+            'store_id': 8,
+            'store_name': 'Food Mart.ca',
+            'country_id': 4}).execute()
 
         self.product_category_table.insert({
             'product_category_id': 1,
             'product_category_name': 'Vegetables'}).execute()
+
         self.product_category_table.insert({
             'product_category_id': 2,
             'product_category_name': 'Shoes'}).execute()
@@ -166,16 +212,16 @@ class TestCase(object):
             func.avg(self.facts_table.c.price).label('price'),
             func.sum(self.facts_table.c.qty).label('qty'),
             self.facts_table.c.product_id,
-            self.store_table.c.store_region.label('store_region'),
+            self.store_table.c.country_id.label('store_country'),
             func.date_trunc('year',
                 self.facts_table.c.date).label('time_year')])
             .group_by(self.facts_table.c.product_id,
-            self.store_table.c.store_region.label('store_region'),
+            self.store_table.c.country_id.label('store_country'),
             func.date_trunc('year',
                 self.facts_table.c.date).label('time_year'))
             .execute())
         for res in second_agg:
-            self.agg_by_year_region_table.insert().execute(dict(res))
+            self.agg_by_year_country_table.insert().execute(dict(res))
 
 
     def test_dimensions(self):
@@ -206,8 +252,10 @@ class TestCase(object):
             ' sum(facts_table.qty) AS "Quantity",'
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
             ' \nFROM facts_table JOIN store ON store.store_id ='
-            ' facts_table.store_id JOIN region ON region.region_id ='
-            ' store.store_region GROUP BY region.region_name')
+            ' facts_table.store_id'
+            ' JOIN country ON country.country_id = store.country_id'
+            ' JOIN region ON region.region_id = country.region_id'
+            ' GROUP BY region.region_name')
         assert unicode(query._as_sql()) == expected
         expected = (u'SELECT'
             ' region.region_name AS store,'
@@ -218,8 +266,10 @@ class TestCase(object):
             ' sum(facts_table.qty) AS "Quantity",'
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
             ' \nFROM facts_table JOIN store ON store.store_id ='
-            ' facts_table.store_id JOIN region ON region.region_id ='
-            ' store.store_region GROUP BY region.region_name,'
+            ' facts_table.store_id'
+            ' JOIN country ON country.country_id = store.country_id'
+            ' JOIN region ON region.region_id = country.region_id'
+            ' GROUP BY region.region_name,'
             ' date_trunc(%(date_trunc_1)s, facts_table.date)')
         query = query.slice(self.cube['time']['year'])
         assert unicode(query._as_sql()) == expected
@@ -234,8 +284,9 @@ class TestCase(object):
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
             ' \nFROM facts_table'
             ' JOIN store ON store.store_id ='
-            ' facts_table.store_id JOIN region ON region.region_id ='
-            ' store.store_region'
+            ' facts_table.store_id'
+            ' JOIN country ON country.country_id = store.country_id'
+            ' JOIN region ON region.region_id = country.region_id'
             ' JOIN product ON product.product_id ='
             ' facts_table.product_id JOIN product_category ON'
             ' product_category.product_category_id ='
@@ -257,8 +308,9 @@ class TestCase(object):
             ' sum(facts_table.price * facts_table.qty) AS "Price"'
             ' \nFROM facts_table'
             ' JOIN store ON store.store_id ='
-            ' facts_table.store_id JOIN region ON region.region_id ='
-            ' store.store_region'
+            ' facts_table.store_id'
+            ' JOIN country ON country.country_id = store.country_id'
+            ' JOIN region ON region.region_id = country.region_id'
             ' JOIN product ON product.product_id ='
             ' facts_table.product_id'
             ' GROUP BY'
@@ -275,7 +327,7 @@ class TestCase(object):
         assert results.keys() == ['All']
         assert results['All'].keys() == ['All']
         assert results['All']['All'].keys() == ['All']
-        assert results['All']['All']['All'].Price == 56000
+        assert results['All']['All']['All'].Price == 110000
         results = self.cube.query.slice(self.cube['time']['year']).execute()
         assert results['All']['All'].keys() == [2009, 2010, 2011]
         results = self.cube.query.axis(self.cube['time']['year']).execute()
@@ -286,12 +338,14 @@ class TestCase(object):
         query = (self.cube.query.measure((computed /
                 computed.over(self.cube['store']['region']) *
                 100).label('CA_percent_by_region'))
-            .axis(self.cube['store']['region']['store']))
+            .axis(self.cube['store']['region']['country']['store']))
         query._as_sql()
         result = query.execute()
-        assert result.keys() == [u'ACME.eu', u'ACME.us', u'Food Mart.eu',
+        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr', u'ACME.us',
+                u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
                 u'Food Mart.us']
-        assert result['ACME.eu']['CA_percent_by_region'] == 24.1379310344828
+
+        assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
         # Avg price * total quantity
         computed = (self.cube.measures['Unit Price'] *
@@ -300,7 +354,7 @@ class TestCase(object):
         assert result.keys() == ['All']
         assert result['All'].keys() == ['All']
         assert result['All']['All'].keys() == ['All']
-        assert result['All']['All']['All'].measure == 57120
+        assert result['All']['All']['All'].measure == 110770
 
 
         # Test the same queries, using an aggregate
@@ -310,12 +364,14 @@ class TestCase(object):
         query = (self.cube.query.measure((computed /
                 computed.over(self.cube['store']['region']) *
                 100).label('CA_percent_by_region'))
-            .axis(self.cube['store']['region']['store']))
+            .axis(self.cube['store']['region']['country']['store']))
         assert 'agg_by_month' in unicode(query._as_sql())
         result = query.execute()
-        assert result.keys() == [u'ACME.eu', u'ACME.us', u'Food Mart.eu',
+        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr', u'ACME.us',
+                u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
                 u'Food Mart.us']
-        assert result['ACME.eu']['CA_percent_by_region'] == 24.1379310344828
+
+        assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
         computed = (self.cube.measures['Unit Price'] *
                 self.cube.measures['Quantity']).label('measure')
@@ -325,12 +381,12 @@ class TestCase(object):
         assert result.keys() == ['All']
         assert result['All'].keys() == ['All']
         assert result['All']['All'].keys() == ['All']
-        assert result['All']['All']['All'].measure == 57120
+        assert result['All']['All']['All'].measure == 110770
 
 
     def _append_aggregate_by_month(self):
         aggregate = Aggregate(self.agg_by_month_table, {
-                    self.cube['store']['region']['store']:
+                    self.cube['store']['region']['country']['store']:
                         self.agg_by_month_table.c.store_id,
                     self.cube['product']['category']['product']:
                         self.agg_by_month_table.c.product_id,
@@ -383,63 +439,64 @@ class TestCase(object):
             ' GROUP BY date_trunc(%(date_trunc_1)s, facts_table.date)')
         assert unicode(query._as_sql()) == expected
 
-        agg_by_year_region = Aggregate(self.agg_by_year_region_table, {
-            self.cube['store']['region']:
-                self.agg_by_year_region_table.c.store_region,
+        agg_by_year_country = Aggregate(self.agg_by_year_country_table, {
+            self.cube['store']['region']['country']:
+                self.agg_by_year_country_table.c.store_country,
             self.cube['product']['category']['product']:
-                self.agg_by_year_region_table.c.product_id,
+                self.agg_by_year_country_table.c.product_id,
                 self.cube['time']['year']:
-                self.agg_by_year_region_table.c.time_year},
+                self.agg_by_year_country_table.c.time_year},
              {self.cube.measures['Unit Price']:
-                        self.agg_by_year_region_table.c.price,
+                        self.agg_by_year_country_table.c.price,
                      self.cube.measures['Quantity']:
-                        self.agg_by_year_region_table.c.qty,
+                        self.agg_by_year_country_table.c.qty,
                      self.cube.measures['Price']:
-                        self.agg_by_year_region_table.c.price *
-                        self.agg_by_year_region_table.c.qty})
-        self.cube.aggregates.append(agg_by_year_region)
+                        self.agg_by_year_country_table.c.price *
+                        self.agg_by_year_country_table.c.qty})
+        self.cube.aggregates.append(agg_by_year_country)
         query = self.cube.query.slice(self.cube['time']['year'])
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
             ' EXTRACT(year FROM date_trunc(%(date_trunc_1)s,'
-            ' agg_by_year_region.time_year)) AS time,'
-            ' avg(agg_by_year_region.price) AS "Unit Price",'
-            ' sum(agg_by_year_region.qty) AS "Quantity",'
-            ' sum(agg_by_year_region.price * agg_by_year_region.qty)'
+            ' agg_by_year_country.time_year)) AS time,'
+            ' avg(agg_by_year_country.price) AS "Unit Price",'
+            ' sum(agg_by_year_country.qty) AS "Quantity",'
+            ' sum(agg_by_year_country.price * agg_by_year_country.qty)'
             ' AS "Price"'
-            ' \nFROM agg_by_year_region'
+            ' \nFROM agg_by_year_country'
             ' GROUP BY'
-            ' date_trunc(%(date_trunc_1)s, agg_by_year_region.time_year)')
+            ' date_trunc(%(date_trunc_1)s, agg_by_year_country.time_year)')
         assert unicode(query._as_sql()) == expected
         query = self.cube.query.slice(self.cube['time']['2010'])
         expected = ('SELECT'
             ' %(param_1)s AS store,'
             ' %(param_2)s AS product,'
             ' %(param_3)s AS time,'
-            ' avg(agg_by_year_region.price) AS "Unit Price",'
-            ' sum(agg_by_year_region.qty) AS "Quantity",'
-            ' sum(agg_by_year_region.price * agg_by_year_region.qty)'
+            ' avg(agg_by_year_country.price) AS "Unit Price",'
+            ' sum(agg_by_year_country.qty) AS "Quantity",'
+            ' sum(agg_by_year_country.price * agg_by_year_country.qty)'
             ' AS "Price"'
-            ' \nFROM agg_by_year_region'
+            ' \nFROM agg_by_year_country'
             ' \nWHERE'
-            ' date_trunc(%(date_trunc_1)s, agg_by_year_region.time_year) ='
+            ' date_trunc(%(date_trunc_1)s, agg_by_year_country.time_year) ='
             ' %(date_trunc_2)s')
         assert unicode(query._as_sql()) == expected
 
     def test_filters(self):
         query = self.cube.query.filter(self.cube['time'][date(year=2010,
             month=1, day=1)])
-        assert query.execute()['All']['All']['All']['Price'] == 20000
+        assert query.execute()['All']['All']['All']['Price'] == 30000
         computed = self.cube.measures['Price']
         query = (self.cube.query.measure((computed /
                 computed.over(self.cube['store']['region']) *
                 100).label('CA_percent_by_region'))
-            .axis(self.cube['store']['region']['store'])
+            .axis(self.cube['store']['region']['country']['store'])
             .filter(self.cube['store']['Europe']))
         result = query.execute()
-        assert result.keys() == [u'ACME.eu', u'Food Mart.eu']
-        assert result['ACME.eu']['CA_percent_by_region'] == 24.1379310344828
+        assert result.keys() == [u'ACME.de', u'ACME.fr', u'Food Mart.de',
+            u'Food Mart.fr']
+        assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query
