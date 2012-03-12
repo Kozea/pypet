@@ -10,7 +10,7 @@ from datetime import date
 class TestCase(object):
 
     def setUp(self):
-        engine = create_engine('postgresql://pypet@localhost/pypet', echo=False)
+        engine = create_engine('postgresql://pypet@localhost/pypet')
         self.metadata = MetaData(bind=engine)
 
         self.store_table = Table('store', self.metadata,
@@ -86,8 +86,9 @@ class TestCase(object):
 
         unit_price = Measure('Unit Price', self.facts_table.c.price, func.avg)
         quantity = Measure('Quantity', self.facts_table.c.qty, func.sum)
-        price = (unit_price.aggregate_with(None) *
-                quantity.aggregate_with(None)).aggregate_with(func.sum).label('Price')
+        price = ((unit_price.aggregate_with(None) *
+                quantity.aggregate_with(None))
+                .aggregate_with(func.sum).label('Price'))
 
         self.cube = Cube(self.metadata, self.facts_table, [self.store_dim,
             self.product_dim, self.time_dim], [unit_price, quantity, price])
@@ -109,7 +110,6 @@ class TestCase(object):
 
         self.country_table.insert({'region_id': 2, 'country_name':
             'Canada', 'country_id': 4}).execute()
-
 
         self.store_table.insert({
             'store_id': 1,
@@ -222,7 +222,6 @@ class TestCase(object):
             .execute())
         for res in second_agg:
             self.agg_by_year_country_table.insert().execute(dict(res))
-
 
     def test_dimensions(self):
         assert len(self.cube.dimensions) == 3
@@ -341,8 +340,8 @@ class TestCase(object):
             .axis(self.cube['store']['region']['country']['store']))
         query._as_sql()
         result = query.execute()
-        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr', u'ACME.us',
-                u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
+        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr',
+                u'ACME.us', u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
                 u'Food Mart.us']
 
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
@@ -356,7 +355,6 @@ class TestCase(object):
         assert result['All']['All'].keys() == ['All']
         assert result['All']['All']['All'].measure == 110770
 
-
         # Test the same queries, using an aggregate
         self._append_aggregate_by_month()
 
@@ -367,8 +365,8 @@ class TestCase(object):
             .axis(self.cube['store']['region']['country']['store']))
         assert 'agg_by_month' in unicode(query._as_sql())
         result = query.execute()
-        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr', u'ACME.us',
-                u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
+        assert result.keys() == [u'ACME.ca', u'ACME.de', u'ACME.fr',
+                u'ACME.us', u'Food Mart.ca', u'Food Mart.de', u'Food Mart.fr',
                 u'Food Mart.us']
 
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
@@ -382,7 +380,6 @@ class TestCase(object):
         assert result['All'].keys() == ['All']
         assert result['All']['All'].keys() == ['All']
         assert result['All']['All']['All'].measure == 110770
-
 
     def _append_aggregate_by_month(self):
         aggregate = Aggregate(self.agg_by_month_table, {

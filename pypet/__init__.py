@@ -138,7 +138,7 @@ class ConstantMeasure(Measure):
 
 class ComputedMeasure(Measure):
 
-    def __init__(self, name, operator, operands, agg=lambda x:x):
+    def __init__(self, name, operator, operands, agg=lambda x: x):
         self.name = name
         self.operator = operator
         self.operands = operands
@@ -180,7 +180,6 @@ class Member(CutPoint):
                     self.level == other.level)
         return False
 
-
     @property
     def dimension(self):
         """Returns this level dimension."""
@@ -190,7 +189,7 @@ class Member(CutPoint):
 class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
-    def __init__(self, name, dim_column=None, label_expr=lambda x:x):
+    def __init__(self, name, dim_column=None, label_expr=lambda x: x):
         self.name = name
         self.dim_column = dim_column
         self.label_expr = label_expr
@@ -469,7 +468,8 @@ class CubeProxy(object):
                 self.selectable = member._add_to_query(self.selectable, self,
                         groupby=False)
             for column in (self.selects + self.rel_selects):
-                self.selectable = self.selectable.column(column).correlate(self.selectable)
+                self.selectable = (self.selectable.column(column)
+                .correlate(self.selectable))
             self.base_query = self.selectable
             self.selectable = select(columns=[], whereclause=None,
                     from_obj=[self.base_query.alias()])
@@ -511,7 +511,8 @@ class CubeProxy(object):
                     agg=measure.agg)
         else:
             # "Raw" measure, no need to make a fuss
-            self.selects.append(measure._raw_expression(self.cuboid).label(measure.name))
+            self.selects.append(measure._raw_expression(self.cuboid)
+                    .label(measure.name))
             return measure
 
     @property
@@ -536,10 +537,10 @@ class Aggregate(object):
 
     def __init__(self, selectable, levels, measures):
         self.selectable = selectable
-        self.measures_expr = OrderedDict((measure.name, expr) for measure, expr in
-            measures.items())
-        self.measures = OrderedDict((measure.name, measure) for measure, expr in
-            measures.items())
+        self.measures_expr = OrderedDict((measure.name, expr)
+                for measure, expr in measures.items())
+        self.measures = OrderedDict((measure.name, measure)
+                for measure, expr in measures.items())
         self.levels = levels
 
     def _score(self, level):
