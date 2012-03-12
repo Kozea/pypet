@@ -174,6 +174,13 @@ class Member(CutPoint):
         return (query.column(self.label_expr(expression).label(label))
                     .where(expression == self.name))
 
+    def __eq__(self, other):
+        if isinstance(other, Member):
+            return (self.name == other.name and
+                    self.level == other.level)
+        return False
+
+
     @property
     def dimension(self):
         """Returns this level dimension."""

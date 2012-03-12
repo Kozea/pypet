@@ -518,7 +518,6 @@ class TestCase(object):
             ' GROUP BY region.region_name, product.product_name')
         assert unicode(query._as_sql()) == expected
 
-
     def test_filters(self):
         query = self.cube.query.filter(self.cube['time'][date(year=2010,
             month=1, day=1)])
@@ -536,10 +535,12 @@ class TestCase(object):
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query
-        assert (self.cube.query.filter(self.cube['store']['region']) ==
-                self.cube.query.filter(self.cube['store']['region']))
+        region = self.cube['store']['region']
+        assert self.cube.query.filter(region) == self.cube.query.filter(region)
         assert (self.cube.query.measure(self.cube.measures['Price']) ==
                 self.cube.query.measure(self.cube.measures['Price']))
+        assert (self.cube.query.filter(region['Europe']) ==
+                self.cube.query.filter(region['Europe']))
 
     def tearDown(self):
         self.metadata.drop_all()
