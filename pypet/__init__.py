@@ -555,8 +555,8 @@ class Aggregate(object):
             return -1
         if len(self.levels) < len(levels):
             return -1
-        return sum(scores) - (0.3 *
-            (len(self.levels) - len(levels)))
+        return sum(scores) * (pow(0.9,
+            (len(self.levels) - len(levels))))
 
     def find_expression(self, measure):
         return self.measures_expr.get(measure.name, measure.expression)
