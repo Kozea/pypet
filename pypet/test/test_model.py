@@ -427,7 +427,6 @@ class TestCase(object):
             ' %(date_trunc_2)s')
         assert unicode(query._as_sql()) == expected
 
-
     def test_filters(self):
         query = self.cube.query.filter(self.cube['time'][date(year=2010,
             month=1, day=1)])
@@ -442,6 +441,12 @@ class TestCase(object):
         assert result.keys() == [u'ACME.eu', u'Food Mart.eu']
         assert result['ACME.eu']['CA_percent_by_region'] == 24.1379310344828
 
+    def test_query_equality(self):
+        assert self.cube.query == self.cube.query
+        assert (self.cube.query.filter(self.cube['store']['region']) ==
+                self.cube.query.filter(self.cube['store']['region']))
+        assert (self.cube.query.measure(self.cube.measures['Price']) ==
+                self.cube.query.measure(self.cube.measures['Price']))
 
     def tearDown(self):
         self.metadata.drop_all()

@@ -42,8 +42,6 @@ def operator(fun):
     return op_fun
 
 
-
-
 class Measure(_Generative):
     """A cube Measure."""
 
@@ -96,6 +94,9 @@ class Measure(_Generative):
     @_generative
     def aggregate_with(self, agg_fun):
         self.agg = agg_fun or (lambda x: x)
+
+    def percent_over(self, level):
+        return self / self.over(level) * 100
 
     @_generative
     def replace_expr(self, expression):
@@ -383,6 +384,14 @@ class Query(_Generative):
                 else (y, scorey), agg_scores, (self.cuboid, 0))
         cuboid = CubeProxy(best_agg, self.cuts, self.measures, self.filters)
         return cuboid.selectable
+
+    def __eq__(self, other):
+        if isinstance(other, Query):
+            return (self.cuboid == other.cuboid and
+                    self.cuts == other.cuts and
+                    self.measures == other.measures and
+                    self.filters == other.filters)
+        return False
 
     @_generative
     def filter(self, member):
