@@ -563,7 +563,7 @@ class TestCase(object):
                 .measure(mes)
                 .top(3, mes))
         res = query.execute().by_label()
-        assert res.keys() == [u'2009-08', u'2011-01', u'2011-05']
+        assert res.keys() == [u'2009-08', u'2010-11', u'2011-01']
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query
