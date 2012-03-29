@@ -1,7 +1,7 @@
-from pypet import Cube, Dimension, Hierarchy, Level, Measure, Aggregate
+from pypet import Cube, Dimension, Hierarchy, Level, Measure, Aggregate, Filter
 from pypet.util import TimeDimension
 from sqlalchemy.schema import MetaData, Table, Column, ForeignKey
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, operators
 from sqlalchemy import create_engine, types
 from itertools import cycle, izip
 from datetime import date
@@ -324,9 +324,10 @@ class TestCase(object):
         assert results['All']['All']['All'].Price == 110000
         results = (self.cube.query.slice(self.cube.d['time'].l['year'])
                     .execute())
-        assert results['All']['All'].by_label().keys() == [2009, 2010, 2011]
+        assert results['All']['All'].by_label().keys() == ['2009', '2010',
+            '2011']
         results = self.cube.query.axis(self.cube.d['time'].l['year']).execute()
-        assert results.by_label().keys() == [2009, 2010, 2011]
+        assert results.by_label().keys() == ['2009', '2010', '2011']
 
     def test_measures(self):
         computed = self.cube.measures['Price']
@@ -350,6 +351,11 @@ class TestCase(object):
         assert result['All'].keys() == ['All']
         assert result['All']['All'].keys() == ['All']
         assert result['All']['All']['All'].measure == 110770
+
+        computed = ((computed / 1000).aggregate_with(func.sum)
+                .label('measure'))
+        result = self.cube.query.measure(computed).execute()
+        assert result['All']['All']['All'].measure == 110770 / 1000.
 
         # Test the same queries, using an aggregate
         self._append_aggregate_by_month()
@@ -512,17 +518,24 @@ class TestCase(object):
         query.execute()
 
     def test_filters(self):
-        query = (self.cube.query
+        query1 = (self.cube.query
                 .filter(self.cube.d['time'].l['year'].member_by_label('2010')))
-        assert query.execute()['All']['All']['All']['Price'] == 30000
+        assert query1.execute()['All']['All']['All']['Price'] == 30000
         computed = self.cube.measures['Price']
-        query = (self.cube.query.measure((computed /
+        query2 = (self.cube.query.measure((computed /
                 computed.over(self.cube.d['store'].l['region']) *
                 100).label('CA_percent_by_region'))
             .axis(self.cube.d['store'].l['store'])
             .filter(self.cube.d['store'].l['region']
                     .member_by_label('Europe')))
-        result = query.execute().by_label()
+        result = query2.execute().by_label()
+        assert set(result.keys()) == set([u'ACME.de', u'ACME.fr',
+            u'Food Mart.de', u'Food Mart.fr'])
+        assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
+        self._append_aggregate_by_month()
+        # We should have the same results with an aggregate
+        assert query1.execute()['All']['All']['All']['Price'] == 30000
+        result = query2.execute().by_label()
         assert set(result.keys()) == set([u'ACME.de', u'ACME.fr',
             u'Food Mart.de', u'Food Mart.fr'])
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
@@ -531,13 +544,26 @@ class TestCase(object):
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
-        assert res.keys() == [1, 5, 11]
+        assert res.keys() == [u'2010-11', u'2011-01', u'2011-05']
+        mes = self.cube.measures['Price'].percent_over(
+                    self.cube.d['time'].l['year'])
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
-                .measure(self.cube.measures['Price'].percent_over(
-                    self.cube.d['time'].l['year']))
+                .measure(mes)
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
-        assert res.keys() == [1, 5, 11]
+        assert res.keys() == [u'2010-11', u'2011-01', u'2011-05']
+        query = (self.cube.query.axis(self.cube.d['time'].l['month'])
+                .measure(mes)
+                .top(2, mes, partition_by=self.cube.d['time'].l['year']))
+        res = query.execute().by_label()
+        # Top 2 by year = 6 entries
+        assert len(res) == 6
+        # Top 3 (in percent by year) of all time
+        query = (self.cube.query.axis(self.cube.d['time'].l['month'])
+                .measure(mes)
+                .top(3, mes))
+        res = query.execute().by_label()
+        assert res.keys() == [u'2009-08', u'2011-01', u'2011-05']
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query

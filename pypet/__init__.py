@@ -12,36 +12,63 @@ from itertools import groupby
 from functools import wraps
 
 from pypet.internals import (ValueSelect, IdSelect, OverSelect, FilterSelect,
-        PostFilterSelect, LabelSelect, RankingSelect, compile)
+        AggregateSelect, PostFilterSelect, LabelSelect,
+        compile, identity_agg)
 
 
-def identity_agg(x):
-    return x
+def wrap_const(const):
+    if not isinstance(const, CubeObject):
+        if not isinstance(const, ColumnClause):
+            const = ConstantMeasure(const)
+        else:
+            const = Measure(str(const), const,
+                    agg=identity_agg)
+    return const
 
 
 def operator(fun):
     @wraps(fun)
     def op_fun(self, other):
-        if not isinstance(other, Measure):
-            if not isinstance(other, ColumnClause):
-                other = ConstantMeasure(other)
-            else:
-                other = Measure(str(other), other,
-                    agg=func.avg)
-        return fun(self, other)
+        return fun(self, wrap_const(other))
     return op_fun
 
 
-class Measure(_Generative):
+def is_agg(column):
+    if all(hasattr(col, '_is_agg') for col in column.base_columns):
+        column._is_agg = True
+    return hasattr(column, '_is_agg')
+
+
+class CubeObject(_Generative):
+    pass
+
+
+class Measure(CubeObject):
     """A cube Measure."""
+
+    _select_class = ValueSelect
 
     def __init__(self, name, expression, agg=func.sum):
         self.expression = expression
         self.agg = agg
         self.name = name
 
+    def select_instance(self, *args, **kwargs):
+        base = self._select_class(self, *args, **kwargs)
+        if is_agg(base.column_clause):
+            return base
+        if self.agg:
+            col = self.agg(base.column_clause)
+            col._is_agg = True
+            return AggregateSelect(self,
+                    name=self.name,
+                    column_clause=col,
+                    dependencies=[base])
+        else:
+            return base
+
     def _as_selects(self):
-        return [ValueSelect(self, column_clause=self.expression, agg=self.agg,
+        return [self.select_instance(column_clause=self.expression,
             name=self.name)]
 
     @property
@@ -54,7 +81,8 @@ class Measure(_Generative):
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
-            return self.replace_expr(cc[self.name])
+            expr = self.replace_expr(cc[self.name])
+            return expr
         return self
 
     @operator
@@ -103,13 +131,17 @@ class Measure(_Generative):
 
 class RelativeMeasure(Measure):
 
+    _select_class = OverSelect
+
     def __init__(self, name, measure, over_level=None, order_level=None,
-            agg=func.avg):
+            agg=identity_agg, desc=True):
         self.name = name
         self.measure = measure
         self.over_level = over_level
         self.order_level = order_level
         self.agg = agg
+        self.inner_agg = self.measure.agg
+        self.desc = desc
 
     def _adapt(self, aggregate):
         over_level = order_level = None
@@ -123,14 +155,16 @@ class RelativeMeasure(Measure):
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
-            return Measure(self.name, cc[self.name], agg=self.agg)
+            cc[self.name]._is_agg = self.inner_agg
+            return Measure(self.name, cc[self.name], agg=self.inner_agg)
         over_level = order_level = None
         if self.over_level:
             over_level = self.over_level._simplify(query)
         if self.order_level:
             order_level = self.order_level._simplify(query)
-        return RelativeMeasure(self.name, self.measure._simplify(query),
-                over_level, order_level, agg=self.agg)
+        ms = self.measure._simplify(query)
+        return RelativeMeasure(self.name, ms,
+                over_level, order_level, agg=self.agg, desc=self.desc)
 
     def _as_selects(self):
         over_selects = order_selects = []
@@ -148,22 +182,25 @@ class RelativeMeasure(Measure):
             order_selects = [sel for sel in self.order_level._as_selects()
                     if isinstance(sel, (IdSelect, ValueSelect))]
             assert len(order_selects) == 1
-            order = order_selects[0].agg(order_selects[0].column_clause)
+            order = order_selects[0].column_clause
+            if self.desc:
+                order = order.desc()
             ms.dependencies.append(order_selects[0])
-        agg = ms.agg
-        over_expr = over(agg(ms.column_clause),
+        col = self.inner_agg(ms.column_clause)
+        col._is_agg = self.inner_agg
+        over_expr = over(col,
                 partition_by=partition,
                 order_by=order)
-        return [OverSelect(self, column_clause=over_expr, name=self.name,
-            dependencies=measure_selects,
-            agg=self.agg)]
+        over_expr._is_agg = self.agg
+        return [self.select_instance(column_clause=over_expr, name=self.name,
+            dependencies=measure_selects)]
 
 
 class ConstantMeasure(Measure):
 
-    def __init__(self, constant):
+    def __init__(self, constant, agg=identity_agg):
         self.constant = constant
-        self.agg = identity_agg
+        self.agg = agg
 
     @property
     def name(self):
@@ -176,9 +213,10 @@ class ConstantMeasure(Measure):
         return self
 
     def _as_selects(self):
-        return [ValueSelect(self,
-            column_clause=_literal_as_binds(self.constant),
-            agg=self.agg)]
+        col = _literal_as_binds(self.constant)
+        col._is_agg = self.agg
+        return [self._select_class(self,
+            column_clause=col)]
 
     @_generative
     def replace_expr(self, expression):
@@ -201,7 +239,7 @@ class ComputedMeasure(Measure):
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
-            agg = func.avg if self.agg is identity_agg else self.agg
+            agg = self.agg
             return Measure(self.name, cc[self.name], agg)
         return ComputedMeasure(self.name, self.operator,
                 [op._simplify(query) for op in self.operands], self.agg)
@@ -209,25 +247,26 @@ class ComputedMeasure(Measure):
     def _as_selects(self):
         sub_selects = reduce(list.__add__, [op._as_selects() for op in
             self.operands], [])
-        default_agg = identity_agg
-        self_expr = self.operator(*[(sub.agg or default_agg)(sub.column_clause)
-            for sub in sub_selects])
-        return [ValueSelect(self, column_clause=self_expr,
+        self_expr = self.operator(*[(sub.column_clause)
+            for sub in sub_selects]).label(self.name)
+        if all(hasattr(sub.column_clause, '_is_agg') for sub in sub_selects):
+            self_expr._is_agg = self.agg
+        return [self.select_instance(column_clause=self_expr,
                 dependencies=sub_selects,
-                name=self.name, agg=self.agg)]
+                name=self.name)]
 
 
-class CutPoint(object):
+class CutPoint(CubeObject):
     """Abstract class marking a class as suitable for a CutPoint."""
     pass
 
 
-class Filter(object):
+class Filter(CubeObject):
 
     _select_class = FilterSelect
 
     def __init__(self, operator, *operands):
-        self.operands = operands
+        self.operands = [wrap_const(op) for op in operands]
         self.operator = operator
 
     def _adapt(self, aggregate):
@@ -240,7 +279,8 @@ class Filter(object):
 
     def _as_selects(self):
         sub_operands = [sel for clause in self.operands
-                for sel in clause._as_selects()]
+                for sel in clause._as_selects()
+                if not isinstance(sel, LabelSelect)]
         return [self._select_class(self, where_clauses=[self.operator(
             *[sub.column_clause for sub in sub_operands])],
             dependencies=sub_operands)]
@@ -323,7 +363,7 @@ class Member(CutPoint):
         return self.level.dimension
 
 
-class Level(CutPoint, _Generative):
+class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
     def __init__(self, name, dim_column=None, label_column=None,
@@ -378,6 +418,10 @@ class Level(CutPoint, _Generative):
             self.label_column = label_column
 
     @_generative
+    def replace_label_expr(self, label_expr):
+        self.label_expr = label_expr
+
+    @_generative
     def replace_level(self, level):
         self.child_level = level
 
@@ -391,12 +435,12 @@ class Level(CutPoint, _Generative):
         return [LabelSelect(self,
             column_clause=self.label_expr(self.label_column),
                     name='%s_label' % self._label_for_select,
-                    dependencies=sub_selects,
+                    dependencies=[],
                     joins=sub_joins + [self.dim_column.table,
                         self.label_column.table]),
                 IdSelect(self, column_clause=self.dim_column,
                     name=self._label_for_select,
-                    dependencies=sub_selects,
+                    dependencies=[],
                     joins=sub_joins + [self.dim_column.table,
                         self.label_column.table])]
 
@@ -435,8 +479,13 @@ class ComputedLevel(Level):
                 label_expr=label_expr)
         self.function = function
 
+    @_generative
+    def replace_level(self, level):
+        self.child_level = level
+        self.dim_column = level.dim_column
+
     def _as_selects(self):
-        col = self.function(self.dim_column)
+        col = self.function(self.dim_column).label(self.name)
         dep = IdSelect(self, column_clause=self.dim_column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
             dependencies=[dep]),
@@ -618,45 +667,20 @@ class Query(_Generative):
         self.axes = list(axes)
 
     @_generative
-    def top(self, n, expr):
+    def top(self, n, expr, partition_by=None):
         self.filters = list(self.filters)
-        self.filters.append(PostFilter(operators.le, Ranking(expr),
-            ConstantMeasure(n)))
+        name = 'RANK OVER %s' % expr.name
+        fun = func.dense_rank()
+        fun._is_agg = True
+        self.filters.append(PostFilter(operators.le,
+            RelativeMeasure(name, ConstantMeasure(fun,
+                agg=lambda x: x),
+                order_level=expr,
+                over_level=partition_by,
+                desc=True), ConstantMeasure(n)))
 
     def execute(self):
         return ResultProxy(self.axes, self._as_sql().execute())
-
-
-class Ranking(object):
-
-    def __init__(self, expr):
-        self.expr = expr
-
-    @property
-    def name(self):
-        return 'RANK OVER %s' % self.expr.name
-
-    def _adapt(self, aggregate):
-        return Ranking(self.expr.adapt(aggregate))
-
-    def _simplify(self, query):
-        cc = ColumnCollection(*query.inner_columns)
-        if self.name in cc:
-            return Measure(self.name, cc[self.name], agg=func.avg)
-        expr = self.expr._simplify(query)
-        if hasattr(expr, 'expression') and hasattr(expr, 'agg'):
-            return RelativeMeasure(self.name,
-                    ConstantMeasure(func.dense_rank()),
-                    order_level=expr, agg=identity_agg)
-        return Ranking(expr)
-
-    def _as_selects(self):
-        expr = self.expr._as_selects()[0]
-        new_measure = ValueSelect(self.expr, name='SUB_%s' % self.name,
-                column_clause=expr.column_clause, force_subquery=True)
-        return [RankingSelect(self, column_clause=new_measure,
-            dependencies=[new_measure],
-            name=self.name, agg=identity_agg)]
 
 
 class Aggregate(object):

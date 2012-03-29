@@ -1,6 +1,14 @@
 from pypet import ComputedLevel, Hierarchy, Dimension
 from sqlalchemy.sql import func, extract
 
+to_char = func.to_char
+
+FORMAT_FUNCTIONS = {
+        'year': lambda x: to_char(x, 'YYYY'),
+        'month': lambda x: to_char(x, 'YYYY-MM'),
+        'day': lambda x: to_char(x, 'YYYY-MM-DD'),
+}
+
 
 class TimeLevel(ComputedLevel):
 
@@ -13,9 +21,9 @@ class TimeLevel(ComputedLevel):
 
         def partial_extract(column):
             return extract(time_slice, column)
-
+        label_expr = FORMAT_FUNCTIONS.get(time_slice, partial_extract)
         super(TimeLevel, self).__init__(name, dim_column,
-                function=partial_trunc, label_expr=partial_extract)
+                function=partial_trunc, label_expr=label_expr)
 
 
 class TimeDimension(Dimension):

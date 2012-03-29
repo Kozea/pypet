@@ -19,4 +19,3 @@ setup(
     packages=find_packages(
         exclude=["*._test", "*._test.*", "test.*", "test"]),
     provides=["pypet"])
-

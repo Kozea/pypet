@@ -2,38 +2,53 @@ from sqlalchemy.sql import (util as sql_util,
         ColumnCollection)
 from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
+        Function,
         and_, _Generative, _generative, func, over)
+
+
+class identity_agg(object):
+
+    def __call__(self, x):
+        return x
+
+    def __nonzero__(self):
+        return False
+
+
+identity_agg = identity_agg()
 
 
 class Select(_Generative):
 
     def __init__(self, comes_from, column_clause=None, name=None,
-            dependencies=None, joins=None, where_clauses=None, agg=None,
-            is_constant=False, force_subquery=False):
+            dependencies=None, joins=None, where_clauses=None,
+            is_constant=False):
         self.column_clause = column_clause
         self.comes_from = comes_from
         self.name = name
         self.dependencies = dependencies or []
         self.joins = joins or []
         self.where_clauses = where_clauses or []
-        self.agg = agg
         self.is_constant = is_constant
-        self.force_subquery = force_subquery
+
+    def _trim_dependency(self, query):
+        _froms_col = [col for _from in query._froms for col in _from.c]
+        for dep in self.dependencies:
+            dep._trim_dependency(query)
+            if any(col.key == dep.name for col in
+                    query.inner_columns) or (any(col.key ==
+                        dep.name for col in _froms_col)):
+                self.dependencies.remove(dep)
 
     def simplify(self, query):
         new_selects = self.comes_from._simplify(query)._as_selects()
-        _froms_col = [col for _from in query._froms for col in _from.c]
         for select in new_selects:
-            for dependency in list(select.dependencies):
-                if any(col.key == dependency.name for col in
-                        query.inner_columns) or (any(col is
-                            dependency.column_clause for col in _froms_col)):
-                    select.dependencies.remove(dependency)
+            select._trim_dependency(query)
         return new_selects
 
     def depth(self):
         sub_depth = max([0] + [sub.depth() for sub in self.dependencies])
-        if any(dep.need_subquery() for dep in self.dependencies):
+        if self.need_subquery():
             return sub_depth + 1
         return sub_depth
 
@@ -44,10 +59,6 @@ class Select(_Generative):
     def need_column(self, column):
         return self.name == column.key or any(dep.need_column(column)
                 for dep in self.dependencies)
-
-    def need_subquery(self):
-        return (self.force_subquery or
-            any(sub.need_subquery() for sub in self.dependencies))
 
     def _append_join(self, query, **kwargs):
         for join in self.joins:
@@ -98,44 +109,62 @@ class Select(_Generative):
             dep.visit(fun)
         fun(self)
 
+    def need_subquery(self):
+        return any(isinstance(dep, AggregateSelect)
+                for dep in self.dependencies)
+
 
 class ValueSelect(Select):
 
+    def need_subquery(self):
+        return any(isinstance(dep, (AggregateSelect, OverSelect))
+                for dep in self.dependencies)
+
     def _append_column(self, query, **kwargs):
-        if self.agg and 'in_group' in kwargs:
-            return self._replace_column(query,
-                    self.agg(self.column_clause).label(self.name))
+        if kwargs['in_group'] and not getattr(self.column_clause, '_is_agg',
+                False):
+            col = func.avg(self.column_clause).label(self.name)
+            return self._replace_column(query, col)
         else:
             return super(ValueSelect, self)._append_column(query)
 
 
-class OverSelect(ValueSelect):
-
-    def need_subquery(self):
-        return True
+class AggregateSelect(ValueSelect):
 
     def _append_column(self, query, **kwargs):
-        query = super(OverSelect, self)._append_column(query, **kwargs)
+        return self._replace_column(query,
+                    self.column_clause.label(self.name))
+
+
+class OverSelect(Select):
+
+    def _append_column(self, query, **kwargs):
+        col = self.column_clause.label(self.name)
+        if hasattr(self.column_clause, '_is_agg'):
+            col._is_agg = self.column_clause._is_agg
+        query = self._replace_column(query, col)
+        if kwargs['in_group']:
+            for attr in ('order_by', 'partition_by'):
+                value = getattr(self.column_clause, attr)
+                if value is not None:
+                    value._preserve_for_over = True
+                    query = query.group_by(value)
+            for clause in self.column_clause.func.base_columns:
+                if hasattr(clause, '_is_agg'):
+                    clauses = list(clause.clauses)
+                else:
+                    clauses = [clause]
+                for cl in clauses:
+                    cl._preserve_for_over = True
+                    query = query.group_by(cl)
         return query
-
-
-class RankingSelect(OverSelect):
-
-    def _append_column(self, query, **kwargs):
-        if 'in_group' in kwargs:
-            col = self.agg(self.column_clause)
-            query = query.group_by(col)
-        else:
-            col = self.column_clause
-        return self._replace_column(query, over(func.dense_rank(),
-            order_by=col))
 
 
 class GroupingSelect(Select):
 
     def _append_column(self, query, **kwargs):
         query = super(GroupingSelect, self)._append_column(query, **kwargs)
-        if 'in_group' in kwargs and not self.is_constant:
+        if kwargs['in_group'] and not self.is_constant:
             query = query.group_by(self.column_clause)
         return query
 
@@ -155,13 +184,14 @@ class FilterSelect(Select):
 class PostFilterSelect(Select):
 
     def need_subquery(self):
-        return True
+        return any(isinstance(dep, (AggregateSelect, OverSelect))
+                for dep in self.dependencies)
 
 
 def by_class(selects):
     selects_dicts = {clz: [] for clz in (
         ValueSelect, LabelSelect, IdSelect, FilterSelect, OverSelect,
-        PostFilterSelect)}
+        PostFilterSelect, AggregateSelect)}
     for select in selects:
         selects_dicts[select.__class__].append(select)
     return selects_dicts
@@ -169,9 +199,9 @@ def by_class(selects):
 
 def process_selects(query, selects, **kwargs):
     typed_selects = by_class(selects)
-    values = typed_selects[ValueSelect] + typed_selects[OverSelect]
-    if all(value.agg for value in values):
-        kwargs['in_group'] = True
+    values = (typed_selects[ValueSelect] + typed_selects[OverSelect] +
+                typed_selects[AggregateSelect])
+    kwargs['in_group'] = bool(typed_selects[AggregateSelect])
     for select in selects:
         query = select._append_join(query, **kwargs)
     for value in values:
