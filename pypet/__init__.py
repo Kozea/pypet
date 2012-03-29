@@ -610,7 +610,7 @@ class Query(_Generative):
         self.limits = []
 
     def _as_sql(self):
-        agg_scores = ((agg, agg.score(self.axes))
+        agg_scores = ((agg, agg.score(self.axes + self.limits))
                 for agg in self.cuboid.aggregates)
         best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
                 if scorex >= scorey
