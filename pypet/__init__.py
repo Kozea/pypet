@@ -148,7 +148,7 @@ class RelativeMeasure(Measure):
         if self.over_level:
             over_level = self.over_level._adapt(aggregate)
         if self.order_level:
-            order_level = self.order_level.adapt(aggregate)
+            order_level = self.order_level._adapt(aggregate)
         return RelativeMeasure(self.name, self.measure._adapt(aggregate),
                 over_level, order_level)
 
@@ -533,6 +533,10 @@ class Hierarchy(object):
         for level in self.levels.values():
             level.bind(self)
 
+    @property
+    def l(self):
+        return self.levels
+
 
 class Dimension(object):
     """A cube dimension."""
@@ -552,6 +556,10 @@ class Dimension(object):
     @property
     def l(self):
         return self.levels
+
+    @property
+    def h(self):
+        return self.hierarchies
 
 
 class ResultProxy(OrderedDict):

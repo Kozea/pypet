@@ -34,7 +34,6 @@ class Select(_Generative):
     def _trim_dependency(self, query):
         _froms_col = [col for _from in query._froms for col in _from.c]
         for dep in self.dependencies:
-            dep._trim_dependency(query)
             if any(col.key == dep.name for col in
                     query.inner_columns) or (any(col.key ==
                         dep.name for col in _froms_col)):
