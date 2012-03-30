@@ -718,11 +718,10 @@ class Aggregate(object):
                 for level in levels]
         scores = [self._score(level) for level in levels]
         if any(score < 0 for score in scores):
-            return -1
-        if len(self.levels) < len(levels):
-            return -1
-        return sum(scores) * (pow(0.9,
-            (len(self.levels) - len(levels))))
+            return -100
+        dims = len(set(l.dimension.name for l in levels))
+        self_dims = len(set(l.dimension.name for l in self.levels))
+        return sum(scores) + 0.3 * (dims - self_dims)
 
     def find_expression(self, measure):
         return self.measures_expr.get(measure.name, measure.expression)
