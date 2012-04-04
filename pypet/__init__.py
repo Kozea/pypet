@@ -56,12 +56,20 @@ class Measure(CubeObject):
         self.agg = agg
         self.name = name
 
-    def select_instance(self, *args, **kwargs):
+    def _apply_agg(self, cuboid, column_clause):
+        if self.agg == avg:
+            if cuboid.fact_count_column is not None:
+                return (func.sum(column_clause * cuboid.fact_count_column) /
+                           cast(func.sum(cuboid.fact_count_column),
+                               types.Numeric))
+        return self.agg(column_clause)
+
+    def select_instance(self, cuboid, *args, **kwargs):
         base = self._select_class(self, *args, **kwargs)
         if is_agg(base.column_clause):
             return base
         if self.agg:
-            col = self.agg(base.column_clause)
+            col = self._apply_agg(cuboid, base.column_clause)
             col._is_agg = True
             return AggregateSelect(self,
                     name=self.name,
@@ -70,8 +78,8 @@ class Measure(CubeObject):
         else:
             return base
 
-    def _as_selects(self):
-        return [self.select_instance(column_clause=self.expression,
+    def _as_selects(self, cuboid):
+        return [self.select_instance(cuboid, column_clause=self.expression,
             name=self.name)]
 
     @property
@@ -188,20 +196,20 @@ class RelativeMeasure(Measure):
         return RelativeMeasure(self.name, ms,
                 over_level, order_level, agg=self.agg, desc=self.desc)
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         over_selects = order_selects = []
         partition = order = None
-        measure_selects = self.measure._as_selects()
+        measure_selects = self.measure._as_selects(cuboid)
         assert len(measure_selects) == 1
         ms = measure_selects[0]
         if self.over_level:
-            over_selects = [sel for sel in self.over_level._as_selects()
+            over_selects = [sel for sel in self.over_level._as_selects(cuboid)
                     if isinstance(sel, IdSelect)]
             assert len(over_selects) == 1
             partition = over_selects[0].column_clause
             ms.dependencies.append(over_selects[0])
         if self.order_level:
-            order_selects = [sel for sel in self.order_level._as_selects()
+            order_selects = [sel for sel in self.order_level._as_selects(cuboid)
                     if isinstance(sel, (IdSelect, ValueSelect))]
             assert len(order_selects) == 1
             order = order_selects[0].column_clause
@@ -214,7 +222,7 @@ class RelativeMeasure(Measure):
                 partition_by=partition,
                 order_by=order)
         over_expr._is_agg = self.agg
-        return [self.select_instance(column_clause=over_expr, name=self.name,
+        return [self.select_instance(cuboid, column_clause=over_expr, name=self.name,
             dependencies=measure_selects)]
 
 
@@ -237,7 +245,7 @@ class ConstantMeasure(Measure):
     def _score(self, aggregate):
         return 0, []
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         col = _literal_as_binds(self.constant)
         col._is_agg = self.agg
         return [self._select_class(self,
@@ -274,15 +282,15 @@ class ComputedMeasure(Measure):
         dims = [d for dim in dims for d in dim]
         return min(scores), dims
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         sub_selects = reduce(
-            list.__add__, [op._as_selects() for op in
+            list.__add__, [op._as_selects(cuboid) for op in
             self.operands], [])
         self_expr = (self.operator(*[(sub.column_clause)
             for sub in sub_selects]).label(self.name))
         if all(hasattr(sub.column_clause, '_is_agg') for sub in sub_selects):
             self_expr._is_agg = self.agg
-        return [self.select_instance(column_clause=self_expr,
+        return [self.select_instance(cuboid, column_clause=self_expr,
                 dependencies=sub_selects,
                 name=self.name)]
 
@@ -313,9 +321,9 @@ class Filter(CubeObject):
         return self.__class__(self.operator, *[clause._simplify(query)
             for clause in self.operands])
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         sub_operands = [sel for clause in self.operands
-                for sel in clause._as_selects()
+                for sel in clause._as_selects(cuboid)
                 if not isinstance(sel, LabelSelect)]
         return [self._select_class(self, where_clauses=[self.operator(
             *[sub.column_clause for sub in sub_operands])],
@@ -335,9 +343,9 @@ class OrFilter(Filter):
         return self.__class__(*[clause._simplify(query)
             for clause in self.operands])
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         sub_operands = [sel for clause in self.operands
-                for sel in clause._as_selects()]
+                for sel in clause._as_selects(cuboid)]
         return [self._select_class(self, where_clauses=[or_(
             *[and_(*sub.where_clauses)
                 for sub in sub_operands if sub.where_clauses])],
@@ -369,8 +377,8 @@ class Member(CutPoint):
                     filter=False)
         return Member(self.level._simplify(query), self.id, self.label)
 
-    def _as_selects(self):
-        subs = [sub for sub in self.level._as_selects()
+    def _as_selects(self, cuboid):
+        subs = [sub for sub in self.level._as_selects(cuboid)
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
         id_expr = subs[0]
@@ -477,11 +485,11 @@ class Level(CutPoint):
     def replace_level(self, level):
         self.child_level = level
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         sub_selects = []
         sub_joins = []
         if self.child_level:
-            sub_selects = self.child_level._as_selects()
+            sub_selects = self.child_level._as_selects(cuboid)
             sub_joins = [elem for alist in sub_selects
                     for elem in alist.joins]
         return [LabelSelect(self,
@@ -536,7 +544,7 @@ class ComputedLevel(Level):
         self.child_level = level
         self.dim_column = level.dim_column
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         col = self.function(self.dim_column).label(self.name)
         dep = IdSelect(self, column_clause=self.dim_column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
@@ -562,7 +570,7 @@ class _AllLevel(Level):
         self.label_expr = _literal_as_binds(self.label)
         self.parent_level = None
 
-    def _as_selects(self):
+    def _as_selects(self, cuboid):
         return [LabelSelect(self, name=self._label_for_select,
             column_clause=self.label_expr, is_constant=True)]
 
@@ -681,8 +689,8 @@ class OrderClause(CubeObject):
     def _simplify(self, query):
         return OrderClause(self.measure._simplify(query), self.reverse)
 
-    def _as_selects(self):
-        sub_selects = self.measure._as_selects()
+    def _as_selects(self, cuboid):
+        sub_selects = self.measure._as_selects(cuboid)
         assert len(sub_selects) == 1
         col = sub_selects[0].column_clause
         if self.reverse:
@@ -716,9 +724,9 @@ class Query(_Generative):
                 else (y, scorey), agg_scores, (self.cuboid, 0))
         query = self._adapt(best_agg)
         things = query.parts
-        selects = [sel  for t in things for sel in t._as_selects()]
+        selects = [sel  for t in things for sel in t._as_selects(best_agg)]
         query = sql_select([], query.cuboid.selectable)
-        return compile(selects, query)
+        return compile(selects, query, best_agg)
 
     @property
     def parts(self):
@@ -792,13 +800,14 @@ class Query(_Generative):
 
 class Aggregate(object):
 
-    def __init__(self, selectable, levels, measures):
+    def __init__(self, selectable, levels, measures, fact_count_column):
         self.selectable = selectable
         self.measures_expr = OrderedDict((measure.name, expr)
                 for measure, expr in measures.items())
         self.measures = OrderedDict((measure.name, measure)
                 for measure, expr in measures.items())
         self.levels = levels
+        self.fact_count_column = fact_count_column
 
     def score(self, things):
         scores, dims = zip(*[thing._score(self) for thing in things])
@@ -823,12 +832,13 @@ class Aggregate(object):
 class Cube(object):
 
     def __init__(self, metadata, fact_table, dimensions, measures,
-            aggregates=None):
+            aggregates=None, fact_count_column=None):
         self.dimensions = OrderedDict((dim.name, dim) for dim in dimensions)
         self.measures = OrderedDict((measure.name, measure) for measure in
                 measures)
         self.table = fact_table
         self.aggregates = aggregates or []
+        self.fact_count_column = fact_count_column
 
     @property
     def query(self):

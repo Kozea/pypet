@@ -1,5 +1,6 @@
 from pypet import Cube, Dimension, Hierarchy, Level, Measure, Aggregate
 from pypet.util import TimeDimension
+from pypet import aggregates
 from sqlalchemy.schema import MetaData, Table, Column, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy import create_engine, types
@@ -90,14 +91,16 @@ class TestCase(object):
         self.time_dim = TimeDimension('time', self.facts_table.c.date,
                 ['year', 'month', 'day'])
 
-        unit_price = Measure('Unit Price', self.facts_table.c.price, func.avg)
+        unit_price = Measure('Unit Price', self.facts_table.c.price,
+                aggregates.avg)
         quantity = Measure('Quantity', self.facts_table.c.qty, func.sum)
         price = ((unit_price.aggregate_with(None) *
                 quantity.aggregate_with(None))
                 .aggregate_with(func.sum).label('Price'))
 
         self.cube = Cube(self.metadata, self.facts_table, [self.store_dim,
-            self.product_dim, self.time_dim], [unit_price, quantity, price])
+            self.product_dim, self.time_dim], [unit_price, quantity, price],
+            fact_count_column=self.facts_table.c.qty)
 
         self.region_table.insert({'region_id': 1, 'region_name':
             'Europe'}).execute()
@@ -202,7 +205,7 @@ class TestCase(object):
                 'qty': next(quantities),
                 'price': next(prices)}).execute()
         results = (self.facts_table.select().with_only_columns([
-                func.avg(self.facts_table.c.price).label('price'),
+                func.sum(self.facts_table.c.price).label('price'),
                 func.sum(self.facts_table.c.qty).label('qty'),
                 self.facts_table.c.product_id,
                 self.facts_table.c.store_id,
@@ -215,7 +218,7 @@ class TestCase(object):
         for res in results:
             self.agg_by_month_table.insert().execute(dict(res))
         second_agg = (self.facts_table.select().with_only_columns([
-            func.avg(self.facts_table.c.price).label('price'),
+            func.sum(self.facts_table.c.price).label('price'),
             func.sum(self.facts_table.c.qty).label('qty'),
             self.facts_table.c.product_id,
             self.store_table.c.country_id.label('store_country'),
@@ -236,7 +239,7 @@ class TestCase(object):
         query = self.cube.query
         res = query.execute()
         scalar = res['All']['All']['All']
-        assert scalar['Unit Price'] == 522.5
+        assert scalar['Unit Price'] == 518.867924528302
         assert scalar['Quantity'] == 212
         assert scalar['Price'] == 110000
 
@@ -278,7 +281,7 @@ class TestCase(object):
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
         # Avg price * total quantity
-        computed = (self.cube.measures['Unit Price'] *
+        computed = (self.cube.measures['Unit Price'].aggregate_with(None) *
                 self.cube.measures['Quantity']).label('measure')
         query = self.cube.query.measure(computed)
         self.compare_agg(query)
@@ -306,7 +309,8 @@ class TestCase(object):
                     {self.cube.measures['Unit Price']:
                         self.agg_by_month_table.c.price,
                      self.cube.measures['Quantity']:
-                        self.agg_by_month_table.c.qty})
+                        self.agg_by_month_table.c.qty},
+                    fact_count_column=self.agg_by_month_table.c.qty)
         self.cube.aggregates.append(aggregate)
 
     def compare_agg(self, query, used_agg=None):
@@ -342,7 +346,8 @@ class TestCase(object):
                         self.agg_by_year_country_table.c.qty,
                      self.cube.measures['Price']:
                         self.agg_by_year_country_table.c.price *
-                        self.agg_by_year_country_table.c.qty})
+                        self.agg_by_year_country_table.c.qty},
+                fact_count_column=self.agg_by_year_country_table.c.qty)
 
         query = self.cube.query.slice(self.cube.d['time'].l['year'])
         res = query.execute()

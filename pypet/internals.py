@@ -28,8 +28,8 @@ class Select(_Generative):
                         dep.name for col in _froms_col)):
                 self.dependencies.remove(dep)
 
-    def simplify(self, query):
-        new_selects = self.comes_from._simplify(query)._as_selects()
+    def simplify(self, query, cuboid):
+        new_selects = self.comes_from._simplify(query)._as_selects(cuboid)
         for select in new_selects:
             select._trim_dependency(query)
         return new_selects
@@ -213,11 +213,11 @@ def process_selects(query, selects, **kwargs):
     return query
 
 
-def compile(selects, query, level=0):
+def compile(selects, query, cuboid, level=0):
     if level > 10:
         raise Exception('Not convergent query, abort, abort!')
     simples = [sel for sub in selects for sel in
-                sub.simplify(query)]
+                sub.simplify(query, cuboid)]
     subqueries = {}
     tags = {}
 
@@ -252,5 +252,5 @@ def compile(selects, query, level=0):
     query = query.group_by(*set(group_bys))
     if len(subqueries) > 1:
         query = query.alias().select()
-        return compile(simples, query, level=level + 1)
+        return compile(simples, query, cuboid, level=level + 1)
     return query
