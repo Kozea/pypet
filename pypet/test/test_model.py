@@ -1,7 +1,7 @@
-from pypet import Cube, Dimension, Hierarchy, Level, Measure, Aggregate, Filter
+from pypet import Cube, Dimension, Hierarchy, Level, Measure, Aggregate
 from pypet.util import TimeDimension
 from sqlalchemy.schema import MetaData, Table, Column, ForeignKey
-from sqlalchemy.sql import func, operators
+from sqlalchemy.sql import func
 from sqlalchemy import create_engine, types
 from itertools import cycle, izip
 from datetime import date
@@ -322,7 +322,6 @@ class TestCase(object):
         assert res == aggres
         self.cube.aggregates = agg
 
-
     def test_agg(self):
         query = self.cube.query.slice(self.cube.d['time'].l['month'])
         self.compare_agg(query, self.agg_by_month_table)
@@ -400,7 +399,7 @@ class TestCase(object):
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2010-11', u'2011-01', u'2011-05']
+        assert res.keys() == [u'2011-01', u'2011-05', u'2010-11']
         mes = self.cube.measures['Price'].percent_over(
                     self.cube.d['time'].l['year'])
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
@@ -408,7 +407,7 @@ class TestCase(object):
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2010-11', u'2011-01', u'2011-05']
+        assert res.keys() == [u'2011-01', u'2011-05', u'2010-11']
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
                 .measure(mes)
                 .top(2, mes, partition_by=self.cube.d['time'].l['year']))
@@ -422,7 +421,7 @@ class TestCase(object):
                 .top(3, mes))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2009-08', u'2010-11', u'2011-01']
+        assert res.keys() == [u'2010-11', u'2011-01', u'2009-08']
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query

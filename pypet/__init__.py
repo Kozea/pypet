@@ -13,7 +13,10 @@ from functools import wraps
 
 from pypet.internals import (ValueSelect, IdSelect, OverSelect, FilterSelect,
         AggregateSelect, PostFilterSelect, LabelSelect,
-        compile, identity_agg)
+        OrderSelect,
+        compile)
+
+from pypet.aggregates import identity_agg, avg
 
 
 def wrap_const(const):
@@ -85,6 +88,9 @@ class Measure(CubeObject):
             return expr
         return self
 
+    def _score(self, agg):
+        return (1, []) if self.name in agg.measures_expr else (-1, [])
+
     @operator
     def __mul__(self, other):
         name = '%s * %s' % (self.name, other.name)
@@ -152,15 +158,31 @@ class RelativeMeasure(Measure):
         return RelativeMeasure(self.name, self.measure._adapt(aggregate),
                 over_level, order_level)
 
+    def _score(self, aggregate):
+        over_score = 0
+        order_score = 0
+        over_dims = []
+        order_dims = []
+        if self.over_level is not None:
+            over_score, over_dims = self.over_level._score(aggregate)
+        if self.order_level is not None:
+            order_score, order_dims = self.order_level._score(aggregate)
+        measure_score, measure_dims = self.measure._score(aggregate)
+        dims = over_dims + order_dims + measure_dims
+        if any(score < 0 for score in
+                (over_score, order_score, measure_score)):
+            return -1, dims
+        return sum([over_score, order_score, measure_score]), dims
+
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
             cc[self.name]._is_agg = self.inner_agg
-            return Measure(self.name, cc[self.name], agg=self.inner_agg)
+            return Measure(self.name, cc[self.name], agg=self.agg)
         over_level = order_level = None
-        if self.over_level:
+        if self.over_level is not None:
             over_level = self.over_level._simplify(query)
-        if self.order_level:
+        if self.order_level is not None:
             order_level = self.order_level._simplify(query)
         ms = self.measure._simplify(query)
         return RelativeMeasure(self.name, ms,
@@ -212,6 +234,9 @@ class ConstantMeasure(Measure):
     def _simplify(self, query):
         return self
 
+    def _score(self, aggregate):
+        return 0, []
+
     def _as_selects(self):
         col = _literal_as_binds(self.constant)
         col._is_agg = self.agg
@@ -244,11 +269,17 @@ class ComputedMeasure(Measure):
         return ComputedMeasure(self.name, self.operator,
                 [op._simplify(query) for op in self.operands], self.agg)
 
+    def _score(self, aggregate):
+        scores, dims = zip(*[op._score(aggregate) for op in self.operands])
+        dims = [d for dim in dims for d in dim]
+        return min(scores), dims
+
     def _as_selects(self):
-        sub_selects = reduce(list.__add__, [op._as_selects() for op in
+        sub_selects = reduce(
+            list.__add__, [op._as_selects() for op in
             self.operands], [])
-        self_expr = self.operator(*[(sub.column_clause)
-            for sub in sub_selects]).label(self.name)
+        self_expr = (self.operator(*[(sub.column_clause)
+            for sub in sub_selects]).label(self.name))
         if all(hasattr(sub.column_clause, '_is_agg') for sub in sub_selects):
             self_expr._is_agg = self.agg
         return [self.select_instance(column_clause=self_expr,
@@ -268,6 +299,11 @@ class Filter(CubeObject):
     def __init__(self, operator, *operands):
         self.operands = [wrap_const(op) for op in operands]
         self.operator = operator
+
+    def _score(self, aggregate):
+        scores, dims = zip(*[op._score(aggregate) for op in self.operands])
+        dims = [d for dim in dims for d in dim]
+        return min(scores), dims
 
     def _adapt(self, aggregate):
         return self.__class__(self.operator, *[clause._adapt(aggregate)
@@ -353,6 +389,9 @@ class Member(CutPoint):
                     self.level == other.level)
         return False
 
+    def _score(self, agg):
+        return self.level._score(agg)
+
     @property
     def _label_for_select(self):
         return self.level._label_for_select
@@ -405,6 +444,19 @@ class Level(CutPoint):
             .where(self.label_expr(self.label_column) == label)
             .limit(1).execute())[0]
         return Member(self, values.id, values.label)
+
+    def _score(self, agg):
+        dim = self.dimension
+        for agglevel in agg.levels:
+            if agglevel.dimension == self.dimension:
+                base_level = agglevel
+                score = 1
+                while(base_level is not None):
+                    if base_level == self:
+                        return score, [dim]
+                    base_level = base_level.parent_level
+                    score *= 0.5
+        return -1, [dim]
 
     @property
     def _label_for_select(self):
@@ -564,10 +616,12 @@ class Dimension(object):
 
 class ResultProxy(OrderedDict):
 
-    def __init__(self, dims, result, label='All'):
-        self.dims = dims
+    def __init__(self, query, result, label='All'):
+        self.dims = query.axes
         self.label = label
         self.scalar_value = None
+        self.query = query
+        self.orders = query.orders
         super(ResultProxy, self).__init__()
         self.update(self._dims_dict(result))
 
@@ -579,7 +633,8 @@ class ResultProxy(OrderedDict):
             return result
         dim_key = self.dims[0]._label_for_select
         next_dims = self.dims[1:]
-        append = lambda label, lines: ResultProxy(next_dims, lines, label)
+        append = lambda label, lines: ResultProxy(
+                self.query.axis(*next_dims), lines, label)
 
         def key_func(x):
             label_key = '%s_label' % dim_key
@@ -589,7 +644,10 @@ class ResultProxy(OrderedDict):
             else:
                 label = key
             return key, label
-        for (key, label), lines in groupby(sorted(lines, key=key_func),
+
+        if len(self.dims) > 1 or not self.orders:
+            lines = sorted(lines, key=key_func)
+        for (key, label), lines in groupby(lines,
                 key_func):
             result[key] = append(label, list(lines))
         return result
@@ -608,6 +666,31 @@ class ResultProxy(OrderedDict):
         raise AttributeError('This result is not a scalar')
 
 
+class OrderClause(CubeObject):
+
+    def __init__(self, measure, reverse=False):
+        self.measure = measure
+        self.reverse = reverse
+
+    def _score(self, agg):
+        return self.measure._score(agg)
+
+    def _adapt(self, agg):
+        return OrderClause(self.measure._adapt(agg), self.reverse)
+
+    def _simplify(self, query):
+        return OrderClause(self.measure._simplify(query), self.reverse)
+
+    def _as_selects(self):
+        sub_selects = self.measure._as_selects()
+        assert len(sub_selects) == 1
+        col = sub_selects[0].column_clause
+        if self.reverse:
+            col = col.desc()
+        return [OrderSelect(self, column_clause=col,
+                dependencies=sub_selects)]
+
+
 class Query(_Generative):
 
     def __init__(self, cuboid, axes, measures):
@@ -615,28 +698,40 @@ class Query(_Generative):
         self.axes = axes
         self.measures = measures
         self.filters = []
-        self.limits = []
+        self.orders = []
+
+    def _generate(self):
+        newself = super(Query, self)._generate()
+        newself.filters = list(self.filters)
+        newself.orders = list(self.orders)
+        newself.axes = list(self.axes)
+        newself.measures = list(self.measures)
+        return newself
 
     def _as_sql(self):
-        agg_scores = ((agg, agg.score(self.axes + self.limits))
+        agg_scores = ((agg, agg.score(self.parts))
                 for agg in self.cuboid.aggregates)
         best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
                 if scorex >= scorey
                 else (y, scorey), agg_scores, (self.cuboid, 0))
         query = self._adapt(best_agg)
-        things = query.axes + query.measures + query.filters + query.limits
+        things = query.parts
         selects = [sel  for t in things for sel in t._as_selects()]
         query = sql_select([], query.cuboid.selectable)
         return compile(selects, query)
 
+    @property
+    def parts(self):
+        return self.axes + self.measures + self.filters + self.orders
+
     @_generative
     def _adapt(self, agg):
         if agg != self.cuboid:
+            self.axes = [axis._adapt(agg) for axis in self.axes]
             self.measures = [measure._adapt(agg) for measure in
                     self.measures]
-            self.axes = [axis._adapt(agg) for axis in self.axes]
             self.filters = [filter._adapt(agg) for filter in self.filters]
-            self.limits = [limit._adapt(agg) for limit in self.limits]
+            self.orders = [order._adapt(agg) for order in self.orders]
             self.cuboid = agg
 
     def __eq__(self, other):
@@ -653,13 +748,16 @@ class Query(_Generative):
             member = OrFilter(*members)
         else:
             member = members[0]
-        self.limits.append(member)
+        self.filters.append(member)
+
+    @_generative
+    def order_by(self, measure, reverse=False):
+        self.orders.append(OrderClause(measure, reverse))
 
     @_generative
     def slice(self, level):
         assert isinstance(level, CutPoint), ("You must slice on a CutPoint"
             "(a level or a member, not a %s" % level.__class__.__name__)
-        self.axes = list(self.axes)
         for idx, axis in enumerate(list(self.axes)):
             if axis.dimension.name == level.dimension.name:
                 self.axes[idx] = level
@@ -676,19 +774,20 @@ class Query(_Generative):
 
     @_generative
     def top(self, n, expr, partition_by=None):
-        self.filters = list(self.filters)
         name = 'RANK OVER %s' % expr.name
         fun = func.dense_rank()
         fun._is_agg = True
-        self.filters.append(PostFilter(operators.le,
-            RelativeMeasure(name, ConstantMeasure(fun,
+        measure = RelativeMeasure(name, ConstantMeasure(fun,
                 agg=lambda x: x),
                 order_level=expr,
                 over_level=partition_by,
-                desc=True), ConstantMeasure(n)))
+                desc=True)
+        self.filters.append(PostFilter(operators.le,
+            measure, ConstantMeasure(n)))
+        self.orders.append(OrderClause(measure))
 
     def execute(self):
-        return ResultProxy(self.axes, self._as_sql().execute())
+        return ResultProxy(self, self._as_sql().execute())
 
 
 class Aggregate(object):
@@ -701,25 +800,11 @@ class Aggregate(object):
                 for measure, expr in measures.items())
         self.levels = levels
 
-    def _score(self, level):
-        for agglevel in self.levels:
-            if agglevel.dimension == level.dimension:
-                base_level = agglevel
-                score = 1
-                while(base_level is not None):
-                    if base_level == level:
-                        return score
-                    base_level = base_level.parent_level
-                    score *= 0.5
-        return -1
-
-    def score(self, levels):
-        levels = [level if isinstance(level, Level) else level.level
-                for level in levels]
-        scores = [self._score(level) for level in levels]
+    def score(self, things):
+        scores, dims = zip(*[thing._score(self) for thing in things])
         if any(score < 0 for score in scores):
             return -100
-        dims = len(set(l.dimension.name for l in levels))
+        dims = len(set(d.name for dim in dims for d in dim))
         self_dims = len(set(l.dimension.name for l in self.levels))
         return sum(scores) + 0.3 * (dims - self_dims)
 

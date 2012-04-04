@@ -2,20 +2,7 @@ from sqlalchemy.sql import (util as sql_util,
         ColumnCollection)
 from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
-        Function,
-        and_, _Generative, _generative, func, over)
-
-
-class identity_agg(object):
-
-    def __call__(self, x):
-        return x
-
-    def __nonzero__(self):
-        return False
-
-
-identity_agg = identity_agg()
+        and_, _Generative, _generative, func)
 
 
 class Select(_Generative):
@@ -34,6 +21,8 @@ class Select(_Generative):
     def _trim_dependency(self, query):
         _froms_col = [col for _from in query._froms for col in _from.c]
         for dep in self.dependencies:
+            if isinstance(dep, AggregateSelect):
+                continue
             if any(col.key == dep.name for col in
                     query.inner_columns) or (any(col.key ==
                         dep.name for col in _froms_col)):
@@ -180,6 +169,12 @@ class FilterSelect(Select):
     pass
 
 
+class OrderSelect(Select):
+
+    def _append_column(self, query, **kwargs):
+        return query.order_by(self.column_clause)
+
+
 class PostFilterSelect(Select):
 
     def need_subquery(self):
@@ -190,7 +185,7 @@ class PostFilterSelect(Select):
 def by_class(selects):
     selects_dicts = {clz: [] for clz in (
         ValueSelect, LabelSelect, IdSelect, FilterSelect, OverSelect,
-        PostFilterSelect, AggregateSelect)}
+        PostFilterSelect, AggregateSelect, OrderSelect)}
     for select in selects:
         selects_dicts[select.__class__].append(select)
     return selects_dicts
@@ -212,6 +207,8 @@ def process_selects(query, selects, **kwargs):
     for filter in typed_selects[FilterSelect]:
         query = filter._append_to_query(query, **kwargs)
     for filter in typed_selects[PostFilterSelect]:
+        query = filter._append_to_query(query, **kwargs)
+    for filter in typed_selects[OrderSelect]:
         query = filter._append_to_query(query, **kwargs)
     return query
 
