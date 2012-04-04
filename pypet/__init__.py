@@ -209,7 +209,8 @@ class RelativeMeasure(Measure):
             partition = over_selects[0].column_clause
             ms.dependencies.append(over_selects[0])
         if self.order_level:
-            order_selects = [sel for sel in self.order_level._as_selects(cuboid)
+            order_selects = [sel for sel in
+                    self.order_level._as_selects(cuboid)
                     if isinstance(sel, (IdSelect, ValueSelect))]
             assert len(order_selects) == 1
             order = order_selects[0].column_clause
@@ -222,8 +223,8 @@ class RelativeMeasure(Measure):
                 partition_by=partition,
                 order_by=order)
         over_expr._is_agg = self.agg
-        return [self.select_instance(cuboid, column_clause=over_expr, name=self.name,
-            dependencies=measure_selects)]
+        return [self.select_instance(cuboid, column_clause=over_expr,
+            name=self.name, dependencies=measure_selects)]
 
 
 class ConstantMeasure(Measure):
