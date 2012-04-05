@@ -367,6 +367,7 @@ class Member(CutPoint):
         self.label = label
         self.filter = filter
         self.label_expr = cast(_literal_as_binds(self.label), types.Unicode)
+        self.id_expr = _literal_as_binds(self.id)
 
     def _adapt(self, aggregate):
         return Member(self.level._adapt(aggregate), self.id, self.label)
@@ -384,6 +385,8 @@ class Member(CutPoint):
         assert len(subs) == 1
         id_expr = subs[0]
         selects = [LabelSelect(self, column_clause=self.label_expr,
+                name='%s_label' % self._label_for_select, is_constant=True),
+                   IdSelect(self, column_clause=self.id_expr,
                     name=self._label_for_select, is_constant=True)]
         if self.filter:
             selects.append(FilterSelect(self,
@@ -560,6 +563,14 @@ class ComputedLevel(Level):
             .where(self.label_expr(self.dim_column) == label)
             .limit(1).execute())[0]
         return Member(self, values[0], values[1])
+
+    def __getitem__(self, key):
+        values = list(sql_select([self.function(self.dim_column),
+                self.label_expr(self.label_column)])
+                .where(self.function(self.dim_column) == key)
+                .limit(1).execute())[0]
+        return Member(self, values[0], values[1])
+
 
 
 class _AllLevel(Level):
@@ -753,11 +764,12 @@ class Query(_Generative):
 
     @_generative
     def filter(self, *members):
-        if len(members) > 1:
-            member = OrFilter(*members)
-        else:
-            member = members[0]
-        self.filters.append(member)
+        if members:
+            if len(members) > 1:
+                member = OrFilter(*members)
+            else:
+                member = members[0]
+            self.filters.append(member)
 
     @_generative
     def order_by(self, measure, reverse=False):

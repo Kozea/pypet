@@ -398,6 +398,11 @@ class TestCase(object):
         assert set(result.keys()) == set([u'ACME.de', u'ACME.fr',
             u'Food Mart.de', u'Food Mart.fr'])
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
+        query = (self.cube.query
+                    .axis(self.cube.d['time'].l['year'])
+                    .filter(self.cube.d['time'].l['year']['2010-01-01']))
+        result = query.execute().by_label()
+        assert set(result.keys()) == set(['2010'])
 
     def test_top(self):
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
