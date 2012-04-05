@@ -46,15 +46,21 @@ class CubeObject(_Generative):
     pass
 
 
+class MetaData(dict):
+
+    def __getattr__(self, key):
+        return self.get(key, None)
+
 class Measure(CubeObject):
     """A cube Measure."""
 
     _select_class = ValueSelect
 
-    def __init__(self, name, expression, agg=func.sum):
+    def __init__(self, name, expression, agg=func.sum, metadata=None):
         self.expression = expression
         self.agg = agg
         self.name = name
+        self.metadata = metadata or MetaData()
 
     def _apply_agg(self, cuboid, column_clause):
         if self.agg == avg:
@@ -148,7 +154,7 @@ class RelativeMeasure(Measure):
     _select_class = OverSelect
 
     def __init__(self, name, measure, over_level=None, order_level=None,
-            agg=identity_agg, desc=True):
+            agg=identity_agg, desc=True, metadata=None):
         self.name = name
         self.measure = measure
         self.over_level = over_level
@@ -156,6 +162,7 @@ class RelativeMeasure(Measure):
         self.agg = agg
         self.inner_agg = self.measure.agg
         self.desc = desc
+        self.metadata = metadata or MetaData()
 
     def _adapt(self, aggregate):
         over_level = order_level = None
@@ -361,13 +368,14 @@ class Member(CutPoint):
     """A member of a Level. Ex: The year 2010 is a member of the Year level of
     the time dimension."""
 
-    def __init__(self, level, id, label, filter=True):
+    def __init__(self, level, id, label, filter=True, metadata=None):
         self.level = level
         self.id = id
         self.label = label
         self.filter = filter
         self.label_expr = cast(_literal_as_binds(self.label), types.Unicode)
         self.id_expr = _literal_as_binds(self.id)
+        self.metadata = metadata or MetaData()
 
     def _adapt(self, aggregate):
         return Member(self.level._adapt(aggregate), self.id, self.label)
@@ -418,7 +426,8 @@ class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
     def __init__(self, name, dim_column=None, label_column=None,
-            label_expr=lambda x: x):
+            label_expr=lambda x: x,
+            metadata=None):
         self.label_column = (label_column if label_column is not None
                 else dim_column)
         self.name = name
@@ -427,6 +436,7 @@ class Level(CutPoint):
         self.child_level = None
         self.parent_level = None
         self.hierarchy = None
+        self.metadata = metadata or MetaData()
 
     def bind(self, hierarchy):
         """Late binding of level to hierarchies."""
@@ -538,10 +548,11 @@ class Level(CutPoint):
 class ComputedLevel(Level):
 
     def __init__(self, name, dim_column=None, label_expr=None,
-            function=lambda x: x):
+            function=lambda x: x, metadata=None):
         super(ComputedLevel, self).__init__(name, dim_column,
-                label_expr=label_expr)
+                label_expr=label_expr, metadata=None)
         self.function = function
+        self.metadata = metadata or MetaData()
 
     @_generative
     def replace_level(self, level):
@@ -576,11 +587,12 @@ class ComputedLevel(Level):
 class _AllLevel(Level):
     """A dummy, top-level level."""
 
-    def __init__(self, name='All', label='All'):
+    def __init__(self, name='All', label='All', metadata=None):
         self.label = label
         self.name = name
         self.label_expr = _literal_as_binds(self.label)
         self.parent_level = None
+        self.metadata = metadata or MetaData()
 
     def _as_selects(self, cuboid):
         return [LabelSelect(self, name=self._label_for_select,
@@ -593,11 +605,12 @@ class _AllLevel(Level):
 class Hierarchy(object):
     """A dimensions hierarchy."""
 
-    def __init__(self, name, levels):
+    def __init__(self, name, levels, metadata=None):
         self.name = name
         self.levels = [_AllLevel()] + levels
         self.default_member = self.levels[0]
         self.levels = OrderedDict((level.name, level) for level in self.levels)
+        self.metadata = metadata or MetaData()
 
     def bind(self, dimension):
         """Late binding of this hierarchy to a dimension."""
@@ -613,13 +626,14 @@ class Hierarchy(object):
 class Dimension(object):
     """A cube dimension."""
 
-    def __init__(self, name, hierarchies):
+    def __init__(self, name, hierarchies, metadata=None):
         self.default_hierarchy = hierarchies[0]
         self.default_member = self.default_hierarchy.default_member
         self.name = name
         for hierarchy in hierarchies:
             hierarchy.bind(self)
         self.hierarchies = {hiera.name: hiera for hiera in hierarchies}
+        self.metadata = metadata or MetaData()
 
     @property
     def levels(self):
