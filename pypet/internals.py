@@ -131,20 +131,6 @@ class OverSelect(Select):
         if hasattr(self.column_clause, '_is_agg'):
             col._is_agg = self.column_clause._is_agg
         query = self._replace_column(query, col)
-        if kwargs['in_group']:
-            for attr in ('order_by', 'partition_by'):
-                value = getattr(self.column_clause, attr)
-                if value is not None:
-                    value._preserve_for_over = True
-                    query = query.group_by(value)
-            for clause in self.column_clause.func.base_columns:
-                if hasattr(clause, '_is_agg'):
-                    clauses = list(clause.clauses)
-                else:
-                    clauses = [clause]
-                for cl in clauses:
-                    cl._preserve_for_over = True
-                    query = query.group_by(cl)
         return query
 
 
@@ -244,8 +230,6 @@ def compile(selects, query, cuboid, level=0):
                 columns_to_keep.append(column)
     for column in query._group_by_clause:
         if any(col.shares_lineage(column) for col in columns_to_keep):
-            group_bys.append(column)
-        elif hasattr(column, '_preserve_for_over'):
             group_bys.append(column)
     query = query.with_only_columns(columns_to_keep)
     query._group_by_clause = []
