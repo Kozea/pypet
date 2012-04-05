@@ -1,6 +1,7 @@
 from sqlalchemy.sql import (func, over, operators,
         select as sql_select,
-        ColumnCollection, cast)
+        ColumnCollection, cast,
+        case)
 from sqlalchemy import types
 from sqlalchemy.sql.expression import (
         or_,
@@ -51,6 +52,7 @@ class MetaData(dict):
     def __getattr__(self, key):
         return self.get(key, None)
 
+
 class Measure(CubeObject):
     """A cube Measure."""
 
@@ -65,9 +67,11 @@ class Measure(CubeObject):
     def _apply_agg(self, cuboid, column_clause):
         if self.agg == avg:
             if cuboid.fact_count_column is not None:
-                return (func.sum(column_clause * cuboid.fact_count_column) /
-                           cast(func.sum(cuboid.fact_count_column),
-                               types.Numeric))
+                count = func.sum(cuboid.fact_count_column)
+                return case([(count == 0, 0)], else_=(
+                    func.sum(column_clause * cuboid.fact_count_column) /
+                           cast(count,
+                               types.Numeric)))
         return self.agg(column_clause)
 
     def select_instance(self, cuboid, *args, **kwargs):
