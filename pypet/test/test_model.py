@@ -442,5 +442,11 @@ class TestCase(object):
         assert (self.cube.query.filter(region.member_by_label('Europe') ==
                 self.cube.query.filter(region.member_by_label('Europe'))))
 
+    def test_members(self):
+        regions = self.cube.d['store'].l['region'].members
+        assert set([r.label for r in regions]) == set(['Europe', 'America'])
+        years = self.cube.d['time'].l['year'].members
+        assert set([y.label for y in years]) == set(['2009', '2010', '2011'])
+
     def tearDown(self):
         self.metadata.drop_all()

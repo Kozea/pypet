@@ -1,4 +1,4 @@
-from pypet import ComputedLevel, Hierarchy, Dimension
+from pypet import ComputedLevel, Hierarchy, Dimension, Query
 from sqlalchemy.sql import func, extract
 
 to_char = func.to_char

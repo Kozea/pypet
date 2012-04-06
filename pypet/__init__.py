@@ -458,16 +458,12 @@ class Level(CutPoint):
         return self.hierarchy.dimension
 
     def __getitem__(self, key):
-        values = list(sql_select([self.dim_column,
-                self.label_expr(self.label_column)])
-                .where(self.dim_column == key)
+        values = list(self._members_query.where(self._id_column == key)
                 .limit(1).execute())[0]
-        return Member(self, values[0], values[1])
+        return Member(self, values.id, values.label)
 
     def member_by_label(self, label):
-        values = list(sql_select([self.dim_column.label('id'),
-            self.label_expr(self.label_column).label('label')])
-            .where(self.label_expr(self.label_column) == label)
+        values = list(self._members_query.where(self._label_column == label)
             .limit(1).execute())[0]
         return Member(self, values.id, values.label)
 
@@ -503,6 +499,14 @@ class Level(CutPoint):
     def replace_level(self, level):
         self.child_level = level
 
+    @property
+    def _label_column(self):
+        return self.label_expr(self.label_column)
+
+    @property
+    def _id_column(self):
+        return self.dim_column
+
     def _as_selects(self, cuboid):
         sub_selects = []
         sub_joins = []
@@ -511,7 +515,7 @@ class Level(CutPoint):
             sub_joins = [elem for alist in sub_selects
                     for elem in alist.joins]
         return [LabelSelect(self,
-            column_clause=self.label_expr(self.label_column),
+            column_clause=self._label_column,
                     name='%s_label' % self._label_for_select,
                     dependencies=[],
                     joins=sub_joins + [self.dim_column.table,
@@ -519,7 +523,7 @@ class Level(CutPoint):
                 IdSelect(self, column_clause=self.dim_column,
                     name=self._label_for_select,
                     dependencies=[],
-                    joins=sub_joins + [self.dim_column.table,
+                    joins=sub_joins + [self._id_column.table,
                         self.label_column.table])]
 
     def _adapt(self, aggregate):
@@ -548,6 +552,16 @@ class Level(CutPoint):
             return self.replace_expr(dim_expr, column_expr)
         return self
 
+    @property
+    def _members_query(self):
+        return sql_select([self._id_column.label('id'),
+                self._label_column.label('label')])
+
+    @property
+    def members(self):
+        return [Member(self, value.id, value.label)
+                for value in self._members_query.distinct().execute()]
+
 
 class ComputedLevel(Level):
 
@@ -563,29 +577,22 @@ class ComputedLevel(Level):
         self.child_level = level
         self.dim_column = level.dim_column
 
+    @property
+    def _id_column(self):
+        return self.function(self.dim_column).label(self.name)
+
+    @property
+    def _label_column(self):
+        return self.label_expr(self._id_column)
+
     def _as_selects(self, cuboid):
-        col = self.function(self.dim_column).label(self.name)
+        col = self._id_column
         dep = IdSelect(self, column_clause=self.dim_column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
             dependencies=[dep]),
             LabelSelect(self, name='%s_label' % self._label_for_select,
-                column_clause=self.label_expr(col),
+                column_clause=self._label_column,
                 dependencies=[dep])]
-
-    def member_by_label(self, label):
-        values = list(sql_select([self.function(self.dim_column),
-            self.label_expr(self.dim_column)])
-            .where(self.label_expr(self.dim_column) == label)
-            .limit(1).execute())[0]
-        return Member(self, values[0], values[1])
-
-    def __getitem__(self, key):
-        values = list(sql_select([self.function(self.dim_column),
-                self.label_expr(self.label_column)])
-                .where(self.function(self.dim_column) == key)
-                .limit(1).execute())[0]
-        return Member(self, values[0], values[1])
-
 
 
 class _AllLevel(Level):
