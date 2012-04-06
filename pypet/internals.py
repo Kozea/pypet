@@ -5,6 +5,36 @@ from sqlalchemy.sql.expression import (
         and_, _Generative, _generative, func)
 
 
+def join_table_with_query(query, table):
+    """Find a join between a query and a table, modifying the from clause in
+    place."""
+    # Check if the join is needed.
+    _, orig_clause = sql_util.find_join_source(
+                                            query._froms,
+                                            table)
+    if orig_clause is not None:
+        # The join is already in the query
+        return
+    replace_clause_index = None
+    for index, _from in enumerate(query._froms):
+        for fk in _from.foreign_keys:
+            if fk.references(table):
+                replace_clause_index, orig_clause = index, _from
+                break
+        for fk in table.foreign_keys:
+            if fk.references(_from):
+                replace_clause_index, orig_clause = index, _from
+                break
+        # Replace the query
+    if replace_clause_index is None:
+        raise ValueError('Cannot find join between %s and %s' % (table,
+            query))
+    query._from_obj = OrderedSet(
+            query._from_obj[:replace_clause_index] +
+            [(orig_clause.join(table))] +
+            query._from_obj[replace_clause_index + 1:])
+
+
 class Select(_Generative):
 
     def __init__(self, comes_from, column_clause=None, name=None,
@@ -50,27 +80,7 @@ class Select(_Generative):
 
     def _append_join(self, query, **kwargs):
         for join in self.joins:
-            # Check if the join is needed.
-            _, orig_clause = sql_util.find_join_source(
-                                                    query._froms,
-                                                    join)
-            if orig_clause is not None:
-                # The join is already in the query
-                continue
-            replace_clause_index = None
-            for index, _from in enumerate(query._froms):
-                for fk in _from.foreign_keys:
-                    if fk.references(join):
-                        replace_clause_index, orig_clause = index, _from
-                        break
-                # Replace the query
-            if replace_clause_index is None:
-                raise ValueError('Cannot find join between %s and %s' % (join,
-                    query))
-            query._from_obj = OrderedSet(
-                    query._from_obj[:replace_clause_index] +
-                    [(orig_clause.join(join))] +
-                    query._from_obj[replace_clause_index + 1:])
+            join_table_with_query(query, join)
         return query
 
     def _replace_column(self, query, column):

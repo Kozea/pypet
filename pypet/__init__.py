@@ -15,6 +15,7 @@ from functools import wraps
 from pypet.internals import (ValueSelect, IdSelect, OverSelect, FilterSelect,
         AggregateSelect, PostFilterSelect, LabelSelect,
         OrderSelect,
+        join_table_with_query,
         compile)
 
 from pypet.aggregates import identity_agg, avg
@@ -391,7 +392,7 @@ class Member(CutPoint):
                     filter=False)
         return Member(self.level._simplify(query), self.id, self.label)
 
-    def _as_selects(self, cuboid):
+    def _as_selects(self, cuboid=None):
         subs = [sub for sub in self.level._as_selects(cuboid)
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
@@ -412,6 +413,22 @@ class Member(CutPoint):
             return (self.id == other.id and
                     self.level == other.level)
         return False
+
+    @property
+    def children_query(self):
+        if self.level.child_level is None:
+            raise ValueError("Cannot build a query for a level without child")
+        query = self.level.child_level._members_query
+        join_table_with_query(query, self.level.dim_column.table)
+        query = query.where(self.level._id_column == self.id)
+        return query
+
+    @property
+    def children(self):
+        if self.level.child_level is None:
+            return []
+        return [Member(self.level.child_level, v.id, v.label)
+                for v in self.children_query.execute()]
 
     def _score(self, agg):
         return self.level._score(agg)
@@ -507,7 +524,7 @@ class Level(CutPoint):
     def _id_column(self):
         return self.dim_column
 
-    def _as_selects(self, cuboid):
+    def _as_selects(self, cuboid=None):
         sub_selects = []
         sub_joins = []
         if self.child_level:
@@ -585,7 +602,7 @@ class ComputedLevel(Level):
     def _label_column(self):
         return self.label_expr(self._id_column)
 
-    def _as_selects(self, cuboid):
+    def _as_selects(self, cuboid=None):
         col = self._id_column
         dep = IdSelect(self, column_clause=self.dim_column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
@@ -605,7 +622,7 @@ class _AllLevel(Level):
         self.parent_level = None
         self.metadata = metadata or MetaData()
 
-    def _as_selects(self, cuboid):
+    def _as_selects(self, cuboid=None):
         return [LabelSelect(self, name=self._label_for_select,
             column_clause=self.label_expr, is_constant=True)]
 

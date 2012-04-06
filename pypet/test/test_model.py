@@ -447,6 +447,10 @@ class TestCase(object):
         assert set([r.label for r in regions]) == set(['Europe', 'America'])
         years = self.cube.d['time'].l['year'].members
         assert set([y.label for y in years]) == set(['2009', '2010', '2011'])
+        american_countries = (self.cube.d['store'].l['region']
+                .member_by_label('America').children)
+        assert set([s.label for s in american_countries]) == set(['USA',
+                    'Canada'])
 
     def tearDown(self):
         self.metadata.drop_all()
