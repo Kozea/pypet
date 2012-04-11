@@ -15,6 +15,7 @@ setup(
     author="Kozea",
     license="AGPL",
     author_email="ronan.dunklau@kozea.fr",
+    install_requires=['sqlalchemy', 'psycopg2'],
     platforms="Any",
     packages=find_packages(
         exclude=["*._test", "*._test.*", "test.*", "test"]),
