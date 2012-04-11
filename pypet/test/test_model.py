@@ -6,9 +6,10 @@ from sqlalchemy.sql import func
 from sqlalchemy import create_engine, types
 from itertools import cycle, izip
 from datetime import date
+import unittest
 
 
-class TestCase(object):
+class TestCase(unittest.TestCase):
 
     def setUp(self):
         engine = create_engine('postgresql://pypet@localhost/pypet')
