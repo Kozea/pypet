@@ -66,8 +66,7 @@ class MetaHierarchy(type):
         for key, value in classdict.items():
             if isinstance(value, Level):
                 classdict['_declaratives'][key] = value
-                order = value._count
-                levels[order] = value(key)
+                levels[value._count] = value(key)
 
         levels = [level for _, level
                   in sorted(levels.items(), key=lambda x: x[0])]
@@ -91,11 +90,19 @@ class MetaDimension(type):
             return dimension_class
 
         hierarchies = []
+        default_levels = {}
         for key in dir(dimension_class):
             value = getattr(dimension_class, key)
             if isinstance(value, pypet.Hierarchy):
                 value.name = key
                 hierarchies.append(value)
+            elif isinstance(value, Level):
+                default_levels[value._count] = value(key)
+
+        if len(default_levels):
+            levels = [level for _, level
+                      in sorted(default_levels.items(), key=lambda x: x[0])]
+            hierarchies.append(pypet.Hierarchy('default', levels))
 
         dimension = pypet.Dimension('_unbound_', hierarchies)
         dimension.definition = dimension_class

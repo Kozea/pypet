@@ -82,6 +82,26 @@ def test_dimension():
     assert TimeDimension.h1.l1 != SpaceDimension.h1.l1
 
 
+def test_level_in_dimension():
+
+    class TimeHierarchy(Hierarchy):
+        l1 = Level()
+        l2 = Level()
+        l3 = Level()
+
+    class TimeDimension(Dimension):
+        l1 = Level()
+        h1 = TimeHierarchy
+        l2 = Level()
+        l3 = Level()
+        l4 = Level()
+
+    assert len(TimeDimension.h1.l) == 4
+    assert hasattr(TimeDimension, 'default')
+    assert len(TimeDimension.default.l) == 5
+    assert TimeDimension.default.l.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
+
+
 class TestCube(BaseTestCase):
     def test_cube(self):
 
