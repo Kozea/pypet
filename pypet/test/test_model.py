@@ -80,7 +80,7 @@ class TestModel(BaseTestCase):
                     self.cube.d['time'].l['month']:
                         self.agg_by_month_table.c.time_month},
                     {self.cube.measures['Unit Price']:
-                        self.agg_by_month_table.c.Price,
+                        self.agg_by_month_table.c['Unit Price'],
                      self.cube.measures['Quantity']:
                         self.agg_by_month_table.c.Quantity},
                     fact_count_column=self.agg_by_month_table.c.Quantity)
@@ -114,11 +114,8 @@ class TestModel(BaseTestCase):
                 self.cube.d['time'].l['year']:
                 self.agg_by_year_country_table.c.time_year},
              {self.cube.measures['Unit Price']:
-                        self.agg_by_year_country_table.c.Price,
+                        self.agg_by_year_country_table.c['Unit Price'],
                      self.cube.measures['Quantity']:
-                        self.agg_by_year_country_table.c.Quantity,
-                     self.cube.measures['Price']:
-                        self.agg_by_year_country_table.c.Price *
                         self.agg_by_year_country_table.c.Quantity},
                 fact_count_column=self.agg_by_year_country_table.c.Quantity)
 

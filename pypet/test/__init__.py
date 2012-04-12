@@ -59,7 +59,7 @@ class BaseTestCase(unittest.TestCase):
                 Column('time_month', types.Date),
                 Column('product_product', types.Integer,
                     ForeignKey('product.product_id')),
-                Column('Price', types.Float),
+                Column('Unit Price', types.Float),
                 Column('Quantity', types.Integer)))
         agg_name = ('agg_time_year_store_country_product_product'
                     '_Unit Price_Quantity')
@@ -70,7 +70,7 @@ class BaseTestCase(unittest.TestCase):
                 Column('time_year', types.Date),
                 Column('product_product', types.Integer,
                     ForeignKey('product.product_id')),
-                Column('Price', types.Float),
+                Column('Unit Price', types.Float),
                 Column('Quantity', types.Integer))
 
         self.metadata.create_all()
@@ -210,7 +210,7 @@ class BaseTestCase(unittest.TestCase):
                 'qty': next(quantities),
                 'price': next(prices)}).execute()
         results = (self.facts_table.select().with_only_columns([
-                func.sum(self.facts_table.c.price).label('Price'),
+                func.sum(self.facts_table.c.price).label('Unit Price'),
                 func.sum(self.facts_table.c.qty).label('Quantity'),
                 self.facts_table.c.product_id.label('product_product'),
                 self.facts_table.c.store_id.label('store_store'),
@@ -223,7 +223,7 @@ class BaseTestCase(unittest.TestCase):
         for res in results:
             self.agg_by_month_table.insert().execute(dict(res))
         second_agg = (self.facts_table.select().with_only_columns([
-            func.sum(self.facts_table.c.price).label('Price'),
+            func.sum(self.facts_table.c.price).label('Unit Price'),
             func.sum(self.facts_table.c.qty).label('Quantity'),
             self.facts_table.c.product_id.label('product_product'),
             self.store_table.c.country_id.label('store_country'),

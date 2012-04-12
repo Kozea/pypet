@@ -872,17 +872,6 @@ class Aggregate(object):
         self_dims = len(set(l.dimension.name for l in self.levels))
         return sum(scores) + 0.3 * (dims - self_dims)
 
-    def find_expression(self, measure):
-        return self.measures_expr.get(measure.name, measure.expression)
-
-    def find_level(self, level):
-        for agglevel in self.levels:
-            if agglevel.dimension == level.dimension:
-                expression = self.levels.get(agglevel)
-                return level.column(expression)
-        raise ValueError("Aggregate (%s) is not suitable for level %s[%s]" %
-                (self.table.name, level.dimension.name, level.name))
-
 
 class Cube(object):
 
