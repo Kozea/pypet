@@ -24,11 +24,13 @@ def test_hierarchy():
 
     class SubSubTimeHierarchy(SubTimeHierarchy.definition):
         l3 = Level()
+        l4 = Level()
 
     assert isinstance(TimeHierarchy, pypet.Hierarchy)
     assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
     assert SubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert SubSubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert hasattr(SubSubTimeHierarchy, 'l4')
+    assert SubSubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
 
     for key in ('l1', 'l2', 'l3'):
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
@@ -55,9 +57,15 @@ def test_dimension():
         l2_2 = Level()
         l3_2 = Level()
 
+    class SpaceHierarchy(Hierarchy):
+        l1 = Level()
+
     class TimeDimension(Dimension):
         h1 = TimeHierarchy
         h2 = TimeHierarchy2
+
+    class SpaceDimension(Dimension):
+        h1 = SpaceHierarchy
 
     assert isinstance(TimeDimension.h1, pypet.Hierarchy)
     assert isinstance(TimeDimension.h1.l1, pypet.Level)
@@ -70,6 +78,8 @@ def test_dimension():
     assert len(TimeDimension.hierarchies) == 2
     assert len([level for h in TimeDimension.hierarchies.values()
            for level in h.levels]) == 11
+    assert TimeDimension.h1 != SpaceDimension.h1
+    assert TimeDimension.h1.l1 != SpaceDimension.h1.l1
 
 
 class TestCube(BaseTestCase):
