@@ -2,7 +2,7 @@ from pypet.test import BaseTestCase
 from pypet.aggbuilder import AggBuilder
 
 
-class TestCase(BaseTestCase):
+class TestAggregateBuilder(BaseTestCase):
 
     def test_builder(self):
         c = self.cube

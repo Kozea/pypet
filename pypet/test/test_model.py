@@ -3,7 +3,7 @@ from pypet import Aggregate
 from sqlalchemy.sql import func
 
 
-class TestCase(BaseTestCase):
+class TestModel(BaseTestCase):
 
     def test_dimensions(self):
         assert len(self.cube.dimensions) == 3

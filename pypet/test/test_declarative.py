@@ -1,4 +1,5 @@
 import pypet
+from pypet.test import BaseTestCase
 from pypet.declarative import Level, Hierarchy, Dimension, Measure, Cube
 
 
@@ -37,9 +38,6 @@ def test_hierarchy():
         assert getattr(SubTimeHierarchy, key) != getattr(
             SubSubTimeHierarchy, key)
 
-    # real_hierarchy = TimeHierarchy()._get('t')
-    # assert real_hierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
-
 
 def test_dimension():
 
@@ -58,31 +56,43 @@ def test_dimension():
         h2 = TimeHierarchy2
 
     assert isinstance(TimeDimension.h1, pypet.Hierarchy)
-    # assert isinstance(TimeDimension.h1.l1, pypet.Level)
-    # assert TimeDimension.h1.l1 == TimeDimension.h1.l1
-    # assert TimeDimension.h1.l1 != TimeDimension.h2.l1
+    assert isinstance(TimeDimension.h1.l1, pypet.Level)
+    assert TimeDimension.h1.l1 == TimeDimension.h1.l1
+    assert TimeDimension.h1.l1 != TimeDimension.h2.l1
 
-    # real_dimension = TimeDimension()._get('d')
-    # assert len(real_dimension.hierarchies) == 2
-    # assert len([level for h in real_dimension.hierarchies.values()
+    assert TimeDimension.h1.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert TimeDimension.h2.levels.keys() == ['All', 'l1', 'l2', 'l3',
+                                        'l1_2', 'l2_2', 'l3_2']
+    # assert len(TimeDimension.hierarchies) == 2
+    # assert len([level for h in TimeDimension.hierarchies.values()
            # for level in h.levels]) == 8
 
 
-def test_cube():
-    class TimeHierarchy(Hierarchy):
-        l1 = Level()
-        l2 = Level()
-        l3 = Level()
+class TestCube(BaseTestCase):
+    def test_cube(self):
 
-    class TimeDimension(Dimension):
-        __metadata__ = 'lol'
-        h1 = TimeHierarchy
+        class TimeHierarchy(Hierarchy):
+            year = Level()
+            month = Level()
+            day = Level()
 
-    class TestCube(Cube):
-        d1 = TimeDimension
-        m1 = Measure()
+        class TimeDimension(Dimension):
+            time = TimeHierarchy
 
-    assert TestCube.m1
-    # TestCube.query.axis(TimeDimension.h1.l1)
+        class TestCube(Cube):
+            __connection__ = 'postgresql://pypet@localhost/pypet'
+            __fact_table__ = 'facts_table'
+            __fact_count_column__ = 'qty'
+            time = TimeDimension
 
-    # assert TestCube.q
+            price = Measure()
+            quantity = Measure('qty')
+
+        assert isinstance(TestCube, pypet.Cube)
+        assert isinstance(TestCube.price, pypet.Measure)
+        assert isinstance(TestCube.quantity, pypet.Measure)
+        assert isinstance(TestCube.time, pypet.Dimension)
+        assert isinstance(TestCube.time.time, pypet.Hierarchy)
+        assert isinstance(TestCube.time.time.day, pypet.Level)
+        assert isinstance(TestCube.query, pypet.Query)
+        # TestCube.query.axis(TimeDimension.h1.l1)
