@@ -1,5 +1,6 @@
 from pypet.test import BaseTestCase
 from pypet import Aggregate
+from pypet import aggregates
 from sqlalchemy.sql import func
 
 
@@ -64,7 +65,7 @@ class TestModel(BaseTestCase):
         assert result['All']['All'].keys() == ['All']
         assert result['All']['All']['All'].measure == 110770
 
-        computed = ((computed / 1000).aggregate_with(func.sum)
+        computed = ((computed / 1000).aggregate_with(aggregates.sum)
                 .label('measure'))
         query = self.cube.query.measure(computed)
         self.compare_agg(query)

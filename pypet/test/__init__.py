@@ -98,10 +98,10 @@ class BaseTestCase(unittest.TestCase):
 
         unit_price = Measure('Unit Price', self.facts_table.c.price,
                 aggregates.avg)
-        quantity = Measure('Quantity', self.facts_table.c.qty, func.sum)
+        quantity = Measure('Quantity', self.facts_table.c.qty, aggregates.sum)
         price = ((unit_price.aggregate_with(None) *
                 quantity.aggregate_with(None))
-                .aggregate_with(func.sum).label('Price'))
+                .aggregate_with(aggregates.sum).label('Price'))
 
         self.cube = Cube(self.metadata, self.facts_table, [self.store_dim,
             self.product_dim, self.time_dim], [unit_price, quantity, price],

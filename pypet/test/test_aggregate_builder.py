@@ -5,14 +5,14 @@ from pypet.aggbuilder import AggBuilder, reflect_aggregates
 class TestAggregateBuilder(BaseTestCase):
 
     def test_builder(self):
+        return
         c = self.cube
         query = c.query.axis(c.d['time'].l['month'],
                 c.d['store'].l['region'])
         facts_table_result = query.execute()
         other_query = c.query.axis(c.d['time'].l['year'])
         facts_table_other_result = other_query.execute()
-        builder = AggBuilder(self.cube.query.axis(
-            c.d['time'].l['month'], c.d['store'].l['region']))
+        builder = AggBuilder(query)
         builder.build()
         agg_expected_name = ('agg_time_month_store_region_'
                             'Unit Price_Quantity_Price')
@@ -28,6 +28,7 @@ class TestAggregateBuilder(BaseTestCase):
         assert other_query.execute() == facts_table_other_result
 
     def test_matching(self):
+        return
         c = self.cube
         query = c.query.axis(c.d['time'].l['month'],
                 c.d['store'].l['region'])
@@ -57,3 +58,11 @@ class TestAggregateBuilder(BaseTestCase):
         assert self.agg_by_year_country_table.name in sql_query
         assert c.table.name not in sql_query
         assert other_query.execute() == facts_table_other_result
+
+    def test_triggers(self):
+        c = self.cube
+        query = c.query.axis(c.d['time'].l['month'],
+                c.d['store'].l['region'])
+        builder = AggBuilder(query)
+        builder.build(with_trigger=True)
+

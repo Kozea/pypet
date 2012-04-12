@@ -18,7 +18,7 @@ from pypet.internals import (ValueSelect, IdSelect, OverSelect, FilterSelect,
         join_table_with_query,
         compile)
 
-from pypet.aggregates import identity_agg, avg
+from pypet import aggregates
 
 
 def wrap_const(const):
@@ -27,7 +27,7 @@ def wrap_const(const):
             const = ConstantMeasure(const)
         else:
             const = Measure(str(const), const,
-                    agg=identity_agg)
+                    agg=aggregates.identity_agg)
     return const
 
 
@@ -59,28 +59,30 @@ class Measure(CubeObject):
 
     _select_class = ValueSelect
 
-    def __init__(self, name, expression, agg=func.sum, metadata=None):
+    def __init__(self, name, expression, agg=aggregates.sum, metadata=None):
         self.expression = expression
         self.agg = agg
         self.name = name
         self.metadata = metadata or MetaData()
 
-    def _apply_agg(self, cuboid, column_clause):
-        if self.agg == avg:
-            if cuboid.fact_count_column is not None:
-                count = func.sum(cuboid.fact_count_column)
-                return case([(count == 0, 0)], else_=(
-                    func.sum(column_clause * cuboid.fact_count_column) /
-                           cast(count,
-                               types.Numeric)))
-        return self.agg(column_clause)
+    @property
+    def agg(self):
+        return self._agg
+
+    @agg.setter
+    def agg(self, value):
+        if value is None:
+            value = aggregates.identity_agg
+        if not isinstance(value, aggregates.Aggregator):
+            raise ValueError("The aggregate must be an instance of Aggregator")
+        self._agg = value
 
     def select_instance(self, cuboid, *args, **kwargs):
         base = self._select_class(self, *args, **kwargs)
         if is_agg(base.column_clause):
             return base
         if self.agg:
-            col = self._apply_agg(cuboid, base.column_clause)
+            col = self.agg(base.column_clause, cuboid)
             col._is_agg = True
             return AggregateSelect(self,
                     name=self.name,
@@ -159,7 +161,7 @@ class RelativeMeasure(Measure):
     _select_class = OverSelect
 
     def __init__(self, name, measure, over_level=None, order_level=None,
-            agg=identity_agg, desc=True, metadata=None):
+            agg=aggregates.identity_agg, desc=True, metadata=None):
         self.name = name
         self.measure = measure
         self.over_level = over_level
@@ -229,7 +231,7 @@ class RelativeMeasure(Measure):
             if self.desc:
                 order = order.desc()
             ms.dependencies.append(order_selects[0])
-        col = self.inner_agg(ms.column_clause)
+        col = self.inner_agg(ms.column_clause, cuboid)
         col._is_agg = self.inner_agg
         over_expr = over(col,
                 partition_by=partition,
@@ -241,7 +243,7 @@ class RelativeMeasure(Measure):
 
 class ConstantMeasure(Measure):
 
-    def __init__(self, constant, agg=identity_agg):
+    def __init__(self, constant, agg=aggregates.identity_agg):
         self.constant = constant
         self.agg = agg
 
@@ -271,7 +273,7 @@ class ConstantMeasure(Measure):
 
 class ComputedMeasure(Measure):
 
-    def __init__(self, name, operator, operands, agg=identity_agg):
+    def __init__(self, name, operator, operands, agg=aggregates.identity_agg):
         self.name = name
         self.operator = operator
         self.operands = operands
@@ -779,7 +781,7 @@ class Query(_Generative):
         query = self._adapt(best_agg)
         things = query.parts
         selects = [sel  for t in things for sel in t._as_selects(best_agg)]
-        query = sql_select([], query.cuboid.selectable)
+        query = sql_select([], from_obj=query.cuboid.selectable)
         return compile(selects, query, best_agg)
 
     @property
@@ -841,7 +843,7 @@ class Query(_Generative):
         fun = func.dense_rank()
         fun._is_agg = True
         measure = RelativeMeasure(name, ConstantMeasure(fun,
-                agg=lambda x: x),
+                agg=aggregates.identity_agg),
                 order_level=expr,
                 over_level=partition_by,
                 desc=True)

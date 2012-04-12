@@ -95,7 +95,9 @@ class Select(_Generative):
         return query
 
     def _append_where(self, query, **kwargs):
-        return query.where(and_(*self.where_clauses))
+        if self.where_clauses:
+            return query.where(and_(*self.where_clauses))
+        return query
 
     def _append_to_query(self, query, **kwargs):
         query = self._append_where(query, **kwargs)

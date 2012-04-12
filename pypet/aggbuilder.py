@@ -1,10 +1,39 @@
 from sqlalchemy.schema import (PrimaryKeyConstraint, ForeignKeyConstraint,
     AddConstraint)
 from sqlalchemy.sql import select, func
-from sqlalchemy.sql.expression import Executable, ClauseElement
+from sqlalchemy.sql.expression import (Executable, ClauseElement, FromClause,
+    ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
 from pypet import Level, ComputedLevel, Aggregate
 import re
+
+
+class NewRowTriggerFromClause(Executable, FromClause):
+
+    def __init__(self, orig_table):
+        self.orig_table = orig_table
+        columns = []
+        for col in orig_table.c:
+            newcol = col._clone()
+            newcol.table = self
+            columns.append(newcol)
+        self._columns = ColumnCollection(*columns)
+
+    def is_derived_from(self, from_clause):
+        return self.orig_table.is_derived_from(from_clause)
+
+    def append_whereclause(self, clause):
+        import pdb
+        pdb.set_trace()
+
+    def corresponding_column(self, column, require_embedded):
+        return super(NewRowTriggerFromClause, self).corresponding_column(column,
+                require_embedded)
+
+
+@compiles(NewRowTriggerFromClause)
+def visit_new_row_trigger_from_clause(element, compiler, **kw):
+    return "TROLLLOLOLOL"
 
 
 class CreateTableAs(Executable, ClauseElement):
@@ -166,6 +195,15 @@ class AggBuilder(object):
                 raise ValueError('An aggregate query MUST NOT contain'
                         'any measure not defined on the cube itself')
 
+    def build_trigger(self, cube, query, agg):
+        sql_query = query._as_sql()
+        new_base_table = NewRowTriggerFromClause(cube.table)
+        sql_query.replace_selectable(cube.table,
+                new_base_table).correlate(new_base_table)
+        import pdb
+        pdb.set_trace()
+
+
     def build(self, schema=None, with_trigger=False):
         """Creates the actual aggregate table.
 
@@ -238,4 +276,8 @@ class AggBuilder(object):
             {measure: table.c[measure.name]
                 for measure in self.query.measures},
             fact_count_column=table.c[fact_count_column_name])
+
+        if with_trigger:
+            self.build_trigger(cube, self.query, agg)
+
         cube.aggregates.append(agg)
