@@ -418,7 +418,7 @@ class Member(CutPoint):
     def children_query(self):
         if self.level.child_level is None:
             raise ValueError("Cannot build a query for a level without child")
-        query = self.level.child_level._members_query
+        query = self.level.child_level.members_query
         join_table_with_query(query, self.level.dim_column.table)
         query = query.where(self.level._id_column == self.id)
         return query
@@ -475,12 +475,12 @@ class Level(CutPoint):
         return self.hierarchy.dimension
 
     def __getitem__(self, key):
-        values = list(self._members_query.where(self._id_column == key)
+        values = list(self.members_query.where(self._id_column == key)
                 .limit(1).execute())[0]
         return Member(self, values.id, values.label)
 
     def member_by_label(self, label):
-        values = list(self._members_query.where(self._label_column == label)
+        values = list(self.members_query.where(self._label_column == label)
             .limit(1).execute())[0]
         return Member(self, values.id, values.label)
 
@@ -570,14 +570,14 @@ class Level(CutPoint):
         return self
 
     @property
-    def _members_query(self):
+    def members_query(self):
         return sql_select([self._id_column.label('id'),
                 self._label_column.label('label')])
 
     @property
     def members(self):
         return [Member(self, value.id, value.label)
-                for value in self._members_query.distinct().execute()]
+                for value in self.members_query.distinct().execute()]
 
 
 class ComputedLevel(Level):
@@ -888,6 +888,7 @@ class Cube(object):
 
     def __init__(self, metadata, fact_table, dimensions, measures,
             aggregates=None, fact_count_column=None):
+        self.alchemy_md = metadata
         self.dimensions = OrderedDict((dim.name, dim) for dim in dimensions)
         self.measures = OrderedDict((measure.name, measure) for measure in
                 measures)
