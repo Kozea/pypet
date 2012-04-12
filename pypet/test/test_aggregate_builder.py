@@ -28,6 +28,12 @@ class TestAggregateBuilder(BaseTestCase):
         assert other_query.execute() == facts_table_other_result
 
     def test_matching(self):
+        c = self.cube
+        query = c.query.axis(c.d['time'].l['month'],
+                c.d['store'].l['region'])
+        facts_table_result = query.execute()
+        other_query = c.query.axis(c.d['time'].l['year'])
+        facts_table_other_result = other_query.execute()
         reflect_aggregates(self.cube)
         # We should have found two aggregate/hs
         assert len(self.cube.aggregates) == 2
@@ -41,5 +47,13 @@ class TestAggregateBuilder(BaseTestCase):
                 self.cube.d['time'].l['year'],
                 self.cube.d['product'].l['product'],
                 self.cube.d['store'].l['country']])
-        assert set(month.measures.keys()) == set(['Price', 'Quantity'])
-        assert set(year.measures.keys()) == set(['Price', 'Quantity'])
+        assert set(month.measures.keys()) == set(['Unit Price', 'Quantity'])
+        assert set(year.measures.keys()) == set(['Unit Price', 'Quantity'])
+        sql_query = str(query._as_sql())
+        assert self.agg_by_month_table.name in sql_query
+        assert c.table.name not in sql_query
+        assert query.execute() == facts_table_result
+        sql_query = str(other_query._as_sql())
+        assert self.agg_by_year_country_table.name in sql_query
+        assert c.table.name not in sql_query
+        assert other_query.execute() == facts_table_other_result
