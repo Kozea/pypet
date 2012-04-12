@@ -47,7 +47,12 @@ class Measure(Declarative):
     """Declarative measure"""
 
     def __call__(self, name, table):
-        expression = column(self.args[0] if len(self.args) else name, table)
+        if len(self.args):
+            expr = self.args[0]
+            self.args = self.args[1:]
+        else:
+            expr = name
+        expression = column(expr, table)
         return pypet.Measure(name, expression, *self.args, **self.kwargs)
 
 
@@ -102,7 +107,11 @@ class MetaDimension(type):
         if len(default_levels):
             levels = [level for _, level
                       in sorted(default_levels.items(), key=lambda x: x[0])]
-            hierarchies.append(pypet.Hierarchy('default', levels))
+            default_hierarchy = pypet.Hierarchy('default', levels)
+            for level in levels:
+                if not hasattr(default_hierarchy, level.name):
+                    setattr(default_hierarchy, level.name, level)
+            hierarchies.append(default_hierarchy)
 
         dimension = pypet.Dimension('_unbound_', hierarchies)
         dimension.definition = dimension_class

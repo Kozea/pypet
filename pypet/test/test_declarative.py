@@ -1,5 +1,6 @@
 import pypet
 from pypet.test import BaseTestCase
+from pypet import aggregates
 from pypet.declarative import Level, Hierarchy, Dimension, Measure, Cube
 
 
@@ -100,33 +101,49 @@ def test_level_in_dimension():
     assert hasattr(TimeDimension, 'default')
     assert len(TimeDimension.default.l) == 5
     assert TimeDimension.default.l.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
+    assert hasattr(TimeDimension.default, 'l1')
+    assert hasattr(TimeDimension.default, 'l2')
 
 
 class TestCube(BaseTestCase):
     def test_cube(self):
+        def c(col):
+            table, column = col.split('.')
+            return self.metadata.tables[table].columns[column]
 
-        class TimeHierarchy(Hierarchy):
-            year = Level()
-            month = Level()
-            day = Level()
+        class StoreDimension(Dimension):
+            region = Level(c('region.region_id'), c('region.region_name'))
+            country = Level(c('country.country_id'), c('country.country_name'))
+            store = Level(c('store.store_id'), c('store.store_name'))
 
-        class TimeDimension(Dimension):
-            time = TimeHierarchy
+        class ProductDimension(Dimension):
+            category = Level(c('product_category.product_category_id'),
+                             c('product_category.product_category_name'))
+            product = Level(c('product.product_id'),
+                            c('product.product_name'))
+
+        # class TimeDimension(Dimension):
+        #     year = Level()
+        #     month = Level()
+        #     day = Level()
 
         class TestCube(Cube):
-            __connection__ = 'postgresql://pypet@localhost/pypet'
+            __metadata__ = self.metadata
             __fact_table__ = 'facts_table'
             __fact_count_column__ = 'qty'
-            time = TimeDimension
+
+            store = StoreDimension
+            product = ProductDimension
+            time = self.time_dim
 
             price = Measure()
-            quantity = Measure('qty')
+            quantity = Measure('qty', agg=aggregates.sum)
 
         assert isinstance(TestCube, pypet.Cube)
         assert isinstance(TestCube.price, pypet.Measure)
         assert isinstance(TestCube.quantity, pypet.Measure)
         assert isinstance(TestCube.time, pypet.Dimension)
-        assert isinstance(TestCube.time.time, pypet.Hierarchy)
-        assert isinstance(TestCube.time.time.day, pypet.Level)
+        # assert isinstance(TestCube.time.default, pypet.Hierarchy)
+        # assert isinstance(TestCube.time.default.day, pypet.Level)
         assert isinstance(TestCube.query, pypet.Query)
-        # TestCube.query.axis(TimeDimension.h1.l1)
+        TestCube.query.axis(StoreDimension.default.region).execute()
