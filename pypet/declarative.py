@@ -46,68 +46,68 @@ class Declarative(object):
 
 class MetaHierarchy(type):
     def __new__(cls, classname, bases, classdict):
-        classdict['_declaratives'] = {}
+        if bases == (Declarative,):  # If Cube do nothing
+            return type.__new__(cls, classname, bases, classdict)
 
+        classdict['_declaratives'] = {}
         for base in bases:
             if hasattr(base, '_declaratives'):
                 for key, value in base._declaratives.items():
                     classdict['_declaratives'][key] = value
-                    classdict.setdefault(key, value._get(key))
-
+                    classdict[key] = value
+        levels = {}
         for key, value in classdict.items():
-            if isinstance(value, Level) or isinstance(value, Declarative):
+            if isinstance(value, Level):
                 classdict['_declaratives'][key] = value
-                classdict[key] = value._get(key)
-        return type.__new__(cls, classname, bases, classdict)
+                level = value._get(key)
+                order = value._count
+                levels[order] = level
 
-
-class Hierarchy(Declarative):
-    """Declarative hierarchy"""
-    __metaclass__ = MetaHierarchy
-
-    def _get(self, name):
-        ordered_keys = getattr(self, '_ordered_keys', None) or [
-            key for key, _ in sorted(
-                self._declaratives.items(), key=lambda x: x[1]._count)]
-        levels = [getattr(self, key) for key in ordered_keys]
-        hierarchy = pypet.Hierarchy(name, levels, *self.args, **self.kwargs)
+        levels = [level for _, level
+                  in sorted(levels.items(), key=lambda x: x[0])]
+        hierarchy = pypet.Hierarchy(classname, levels)
+        hierarchy.definition = type.__new__(cls, classname, bases, classdict)
         for level in levels:
             if not hasattr(hierarchy, level.name):
                 setattr(hierarchy, level.name, level)
         return hierarchy
 
 
+class Hierarchy(Declarative):
+    """Declarative hierarchy"""
+    __metaclass__ = MetaHierarchy
+
+
 class MetaDimension(type):
     def __new__(cls, classname, bases, classdict):
-        classdict['_declaratives'] = {}
+        if bases == (Declarative,):  # If Cube do nothing
+            return type.__new__(cls, classname, bases, classdict)
 
+        classdict['_declaratives'] = {}
         for base in bases:
             if hasattr(base, '_declaratives'):
                 for key, value in base._declaratives.items():
                     classdict['_declaratives'][key] = value
-                    classdict.setdefault(key, value._get(key))
+                    classdict[key] = value
 
+        hierarchies = []
         for key, value in classdict.items():
-            if isinstance(value, type) and issubclass(value, Hierarchy):
-                value = value()
-            if isinstance(value, Hierarchy):
+            if isinstance(value, pypet.Hierarchy):
+                value.name = key
+                hierarchies.append(value)
                 classdict['_declaratives'][key] = value
-                classdict[key] = value._get(key)
-        return type.__new__(cls, classname, bases, classdict)
+
+        dimension = pypet.Dimension(classname, hierarchies)
+        dimension.definition = type.__new__(cls, classname, bases, classdict)
+        for hierarchy in hierarchies:
+            if not hasattr(dimension, hierarchy.name):
+                setattr(dimension, hierarchy.name, hierarchy)
+        return dimension
 
 
 class Dimension(Declarative):
     """Declarative dimension"""
     __metaclass__ = MetaDimension
-
-    def _get(self, name):
-        hierarchies = [getattr(self, key) for key in self._declaratives.keys()]
-        dimension = pypet.Dimension(
-            name, hierarchies, *self.args, **self.kwargs)
-        for level in hierarchies:
-            if not hasattr(dimension, level.name):
-                setattr(dimension, level.name, level)
-        return dimension
 
 
 class Measure(Declarative):
@@ -151,8 +151,9 @@ class MetaCube(type):
         dimensions = []
         measures = []
         for key, value in classdict.items():
-            if isinstance(value, type) and issubclass(value, Dimension):
-                dimensions.append(value()._get(key))
+            if isinstance(value, pypet.Dimension):
+                value.name = key
+                dimensions.append(value)
             elif isinstance(value, Measure):
                 measures.append(value._get(key, fact_table))
 
