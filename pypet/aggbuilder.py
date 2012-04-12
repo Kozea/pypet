@@ -4,6 +4,7 @@ from sqlalchemy.sql import select, func
 from sqlalchemy.sql.expression import Executable, ClauseElement
 from sqlalchemy.ext.compiler import compiles
 from pypet import Level, ComputedLevel, Aggregate
+import re
 
 
 class CreateTableAs(Executable, ClauseElement):
@@ -66,9 +67,65 @@ class NamingConvention(object):
     def build_fact_count_column_name(cls):
         return cls.fact_count_column_name
 
+    @classmethod
+    def matches_table_name(cls, cube, table):
+        table_name_re = cls.table_name.replace('{levels}', '.*')
+        table_name_re = table_name_re.replace('{measures}', '.*')
+        return re.match(table_name_re, table.name)
 
-def reflect_agg(cube, naming_convention):
-    pass
+    @classmethod
+    def find_column_as_level(cls, cube, column):
+        splitted = column.name.split('_')
+        if len(splitted) == 2:
+            # It may be a level
+            if splitted[0] in cube.d:
+                for hierarchy in cube.d[splitted[0]].h.values():
+                    if splitted[1] in hierarchy.l:
+                        return hierarchy.l[splitted[1]]
+
+    @classmethod
+    def find_column_as_measure(cls, cube, column):
+        if column.name in cube.m:
+            return cube.m[column.name]
+
+    @classmethod
+    def find_column_as_fact_count(cls, cube, column):
+        if cube.fact_count_column is not None:
+            if cube.fact_count_column.name == column.name:
+                return column
+        if column.name == cls.fact_count_column_name:
+            return column
+
+
+def table_to_aggregate(cube, table, naming_convention=NamingConvention):
+    if naming_convention.matches_table_name(cube, table):
+        measures = {}
+        levels = {}
+        fact_count_column = None
+        for col in table.columns:
+            as_fc = naming_convention.find_column_as_fact_count(cube, col)
+            if as_fc is not None:
+                fact_count_column = as_fc
+            as_ms = naming_convention.find_column_as_measure(cube, col)
+            if as_ms:
+                measures[as_ms] = col
+            as_level = naming_convention.find_column_as_level(cube, col)
+            if as_level:
+                levels[as_level] = col
+        if measures and levels:
+            return Aggregate(table, levels, measures, fact_count_column)
+
+
+def reflect_aggregates(cube, naming_convention=NamingConvention):
+    """Reflect aggregates from the cube definition.
+
+    The sqlalchemy metadata should have been populated beforehand (via
+    "reflect")
+    """
+    for table in cube.alchemy_md.tables.values():
+        agg = table_to_aggregate(cube, table, naming_convention)
+        if agg is not None:
+            cube.aggregates.append(agg)
 
 
 class AggBuilder(object):
