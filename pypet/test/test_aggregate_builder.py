@@ -1,5 +1,5 @@
 from pypet.test import BaseTestCase
-from pypet.aggbuilder import AggBuilder
+from pypet.aggbuilder import AggBuilder, reflect_aggregates
 
 
 class TestCase(BaseTestCase):
@@ -26,3 +26,20 @@ class TestCase(BaseTestCase):
         assert agg_expected_name in sql_query
         assert c.table.name not in sql_query
         assert other_query.execute() == facts_table_other_result
+
+    def test_matching(self):
+        reflect_aggregates(self.cube)
+        # We should have found two aggregate/hs
+        assert len(self.cube.aggregates) == 2
+        month, year = sorted(self.cube.aggregates,
+                key=lambda x: x.selectable.name)
+        assert set(month.levels.keys()) == set([
+                self.cube.d['time'].l['month'],
+                self.cube.d['product'].l['product'],
+                self.cube.d['store'].l['store']])
+        assert set(year.levels.keys()) == set([
+                self.cube.d['time'].l['year'],
+                self.cube.d['product'].l['product'],
+                self.cube.d['store'].l['country']])
+        assert set(month.measures.keys()) == set(['Price', 'Quantity'])
+        assert set(year.measures.keys()) == set(['Price', 'Quantity'])

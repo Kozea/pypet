@@ -74,16 +74,16 @@ class TestCase(BaseTestCase):
     def _append_aggregate_by_month(self):
         aggregate = Aggregate(self.agg_by_month_table, {
                     self.cube.d['store'].l['store']:
-                        self.agg_by_month_table.c.store_id,
+                        self.agg_by_month_table.c.store_store,
                     self.cube.d['product'].l['product']:
-                        self.agg_by_month_table.c.product_id,
+                        self.agg_by_month_table.c.product_product,
                     self.cube.d['time'].l['month']:
                         self.agg_by_month_table.c.time_month},
                     {self.cube.measures['Unit Price']:
-                        self.agg_by_month_table.c.price,
+                        self.agg_by_month_table.c.Price,
                      self.cube.measures['Quantity']:
-                        self.agg_by_month_table.c.qty},
-                    fact_count_column=self.agg_by_month_table.c.qty)
+                        self.agg_by_month_table.c.Quantity},
+                    fact_count_column=self.agg_by_month_table.c.Quantity)
         self.cube.aggregates.append(aggregate)
 
     def compare_agg(self, query, used_agg=None):
@@ -110,17 +110,17 @@ class TestCase(BaseTestCase):
             self.cube.d['store'].l['country']:
                 self.agg_by_year_country_table.c.store_country,
                 self.cube.d['product'].l['product']:
-                self.agg_by_year_country_table.c.product_id,
+                self.agg_by_year_country_table.c.product_product,
                 self.cube.d['time'].l['year']:
                 self.agg_by_year_country_table.c.time_year},
              {self.cube.measures['Unit Price']:
-                        self.agg_by_year_country_table.c.price,
+                        self.agg_by_year_country_table.c.Price,
                      self.cube.measures['Quantity']:
-                        self.agg_by_year_country_table.c.qty,
+                        self.agg_by_year_country_table.c.Quantity,
                      self.cube.measures['Price']:
-                        self.agg_by_year_country_table.c.price *
-                        self.agg_by_year_country_table.c.qty},
-                fact_count_column=self.agg_by_year_country_table.c.qty)
+                        self.agg_by_year_country_table.c.Price *
+                        self.agg_by_year_country_table.c.Quantity},
+                fact_count_column=self.agg_by_year_country_table.c.Quantity)
 
         query = self.cube.query.slice(self.cube.d['time'].l['year'])
         res = query.execute()
