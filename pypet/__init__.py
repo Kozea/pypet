@@ -620,7 +620,7 @@ class _AllLevel(Level):
     def __init__(self, name='All', label='All', metadata=None):
         self.label = label
         self.name = name
-        self.label_expr = _literal_as_binds(self.label)
+        self.label_expr = cast(_literal_as_binds(self.label), types.Unicode)
         self.parent_level = None
         self.metadata = metadata or MetaData()
 
@@ -728,6 +728,10 @@ class ResultProxy(OrderedDict):
         if self.scalar_value is not None:
             return getattr(self.scalar_value, key)
         raise AttributeError('This result is not a scalar')
+
+    def __eq__(self, other):
+        return (super(ResultProxy, self).__eq__(other) and
+                self.scalar_value == other.scalar_value)
 
 
 class OrderClause(CubeObject):

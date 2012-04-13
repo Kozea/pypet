@@ -210,7 +210,10 @@ class BaseTestCase(unittest.TestCase):
                 'qty': next(quantities),
                 'price': next(prices)}).execute()
         results = (self.facts_table.select().with_only_columns([
-                func.sum(self.facts_table.c.price).label('Unit Price'),
+                (func.sum(self.facts_table.c.price *
+                    self.facts_table.c.qty) /
+                    func.sum(self.facts_table.c.qty))
+                    .label('Unit Price'),
                 func.sum(self.facts_table.c.qty).label('Quantity'),
                 self.facts_table.c.product_id.label('product_product'),
                 self.facts_table.c.store_id.label('store_store'),
@@ -223,12 +226,16 @@ class BaseTestCase(unittest.TestCase):
         for res in results:
             self.agg_by_month_table.insert().execute(dict(res))
         second_agg = (self.facts_table.select().with_only_columns([
-            func.sum(self.facts_table.c.price).label('Unit Price'),
+            (func.sum(self.facts_table.c.price *
+                    self.facts_table.c.qty) /
+                    func.sum(self.facts_table.c.qty))
+                    .label('Unit Price'),
             func.sum(self.facts_table.c.qty).label('Quantity'),
             self.facts_table.c.product_id.label('product_product'),
             self.store_table.c.country_id.label('store_country'),
             func.date_trunc('year',
                 self.facts_table.c.date).label('time_year')])
+            .where(self.facts_table.c.store_id == self.store_table.c.store_id)
             .group_by(self.facts_table.c.product_id.label('product_product'),
             self.store_table.c.country_id.label('store_country'),
             func.date_trunc('year',

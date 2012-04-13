@@ -1,20 +1,24 @@
 from sqlalchemy.schema import (PrimaryKeyConstraint, ForeignKeyConstraint,
     AddConstraint)
-from sqlalchemy.sql import select, func
-from sqlalchemy.sql.expression import (Executable, ClauseElement, FromClause,
-    ColumnCollection)
+from sqlalchemy.sql import select, func, and_
+from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
+    FromClause, ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
-from pypet import Level, ComputedLevel, Aggregate
+from pypet import Level, ComputedLevel, Aggregate, _AllLevel
+from psycopg2.extensions import adapt as sqlescape
 import re
 
 
-class NewRowTriggerFromClause(Executable, FromClause):
+class NewRowToAgg(Select):
 
     def __init__(self, orig_table):
         self.orig_table = orig_table
+        self.name = 'NEW'
+        self.use_labels = True
         columns = []
+        self.named_with_column = True
         for col in orig_table.c:
-            newcol = col._clone()
+            newcol = col.copy()
             newcol.table = self
             columns.append(newcol)
         self._columns = ColumnCollection(*columns)
@@ -22,18 +26,48 @@ class NewRowTriggerFromClause(Executable, FromClause):
     def is_derived_from(self, from_clause):
         return self.orig_table.is_derived_from(from_clause)
 
-    def append_whereclause(self, clause):
-        import pdb
-        pdb.set_trace()
-
-    def corresponding_column(self, column, require_embedded):
-        return super(NewRowTriggerFromClause, self).corresponding_column(column,
-                require_embedded)
+    def corresponding_column(self, column, require_embedded=False):
+        col = self.orig_table.corresponding_column(column,
+            require_embedded)
+        if col is not None:
+            return self._columns[col.name]
 
 
-@compiles(NewRowTriggerFromClause)
+@compiles(NewRowToAgg)
 def visit_new_row_trigger_from_clause(element, compiler, **kw):
-    return "TROLLLOLOLOL"
+    query_parts = []
+    for c in element.c:
+        query_parts.append(compiler.process(c).replace('"NEW"', 'NEW'))
+    return '( SELECT %s ) AS "%s"' % (', '.join(query_parts), element.name)
+
+
+class AccumulatorRow(FromClause):
+
+    def __init__(self, selectable, agg):
+        self.selectable = selectable
+        self.count = selectable.c[agg.fact_count_column.name]
+        self.selectable = selectable
+        self._columns = selectable.c
+
+
+@compiles(AccumulatorRow)
+def visit_accumulator_row(element, compiler, **kw):
+    return compiler.process(element.selectable, **kw)
+
+
+class SelectInto(Select):
+
+    def __init__(self, selectable, into):
+        super(SelectInto, self).__init__(selectable.c)
+        self.selectable = selectable
+        self.into = into
+
+
+@compiles(SelectInto)
+def visit_select_into(element, compiler, **kw):
+    return ("SELECT * INTO %s from (%s) t" % (
+            element.into,
+            compiler.process(element.selectable, **kw)))
 
 
 class CreateTableAs(Executable, ClauseElement):
@@ -58,11 +92,47 @@ def visit_create_table_as(element, compiler, **kw):
     )
 
 
+class CreateFunction(Executable, ClauseElement):
+
+    def __init__(self, function_name, args, return_type, body,
+            language='plpgsql'):
+        self.function_name = function_name
+        self.args = args
+        self.return_type = return_type
+        self.language = language
+        self.body = body
+
+
+@compiles(CreateFunction)
+def visit_create_function(element, compiler, **kw):
+    preparer = compiler.dialect.identifier_preparer
+    fn_name = preparer.quote_identifier(element.function_name)
+    params = []
+    for name, type in element.args.items():
+        if not isinstance(type, basestring):
+            type = compiler.process(type, **kw)
+        params.append('%s %s' % (name, type))
+    return_type = element.return_type
+    if not isinstance(return_type, basestring):
+        return_type = compiler.process(type, **kw)
+    result = ('CREATE FUNCTION %s (%s) RETURNS %s as $fn_body$ \n' %
+                (fn_name, ','.join(params), return_type))
+    result += element.body
+    result += '\n $fn_body$ language %s' % (element.language)
+    return result
+
+
+def adapt_query(query, base_table):
+    new_base_table = NewRowToAgg(base_table)
+    return query.replace_selectable(base_table,
+                new_base_table)
+
+
 class NamingConvention(object):
     """A namingconvention describe how aggregates table and column names should
     be matched."""
 
-    table_name = 'agg_{levels}_{measures}'
+    table_name = 'agg_{levels}'
     level_name = '{level.dimension.name}_{level.name}'
     measure_name = '{measure.name}'
     table_level_name = level_name
@@ -70,6 +140,8 @@ class NamingConvention(object):
     level_name_separator = '_'
     measure_name_separator = '_'
     fact_count_column_name = 'fact_count'
+    trigger_function_name = 'trigger_function_{tablename}'
+    trigger_name = 'trigger_{tablename}'
 
     @classmethod
     def build_level_name(cls, level):
@@ -124,6 +196,14 @@ class NamingConvention(object):
                 return column
         if column.name == cls.fact_count_column_name:
             return column
+
+    @classmethod
+    def build_trigger_name(cls, tablename):
+        return cls.trigger_name.format(tablename=tablename)
+
+    @classmethod
+    def build_trigger_function_name(cls, tablename):
+        return cls.trigger_function_name.format(tablename=tablename)
 
 
 def table_to_aggregate(cube, table, naming_convention=NamingConvention):
@@ -195,14 +275,63 @@ class AggBuilder(object):
                 raise ValueError('An aggregate query MUST NOT contain'
                         'any measure not defined on the cube itself')
 
-    def build_trigger(self, cube, query, agg):
-        sql_query = query._as_sql()
-        new_base_table = NewRowTriggerFromClause(cube.table)
-        sql_query.replace_selectable(cube.table,
-                new_base_table).correlate(new_base_table)
-        import pdb
-        pdb.set_trace()
+    def build_trigger(self, conn, cube, sql_query, agg,
+            nc=NamingConvention):
+        new_query = adapt_query(sql_query, cube.table).alias()
+        new_row = AccumulatorRow(new_query, agg)
+        agg_row = AccumulatorRow(agg.selectable, agg)
+        transformations = {}
+        primary_keys = {}
+        for name, expr in agg.measures_expr.items():
+            measure = agg.measures[name]
+            transformations[expr.name] = (measure.agg.accumulator(expr.name,
+                new_row, agg_row).label(expr.name))
+        transformations[agg.fact_count_column.name] = (
+                new_row.c[agg.fact_count_column.name] +
+                agg_row.c[agg.fact_count_column.name]).label(agg.fact_count_column.name)
+        filter_clause = []
+        for name, expr in agg.levels.items():
+            primary_keys[expr.name] = new_row.c[expr.name]
+            filter_clause.append(new_row.c[expr.name] == agg_row.c[expr.name])
+        agg_column_names = [col.name for col in agg.selectable.c]
+        values = sorted(transformations.values() + primary_keys.values(),
+                key=lambda x: agg_column_names.index(x.name))
+        select_statement = select(values).where(and_(*filter_clause))
+        fn_name = nc.build_trigger_function_name(
+                agg.selectable.name)
+        variable_name = 'temp_row_for_update'
+        intostmt = SelectInto(select_statement, variable_name).compile()
+        params = {}
+        for k, v in intostmt.params.items():
+            params[k] = sqlescape(v)
+        intostmt = intostmt.string % params
+        values = []
+        for name in transformations:
+            values.append('"%s" = %s."%s"' % (name, variable_name, name))
+        pk_values = []
+        for name in primary_keys:
+            pk_values.append('"%s" = %s."%s"' % (name, variable_name, name))
+        fn_body = """DECLARE
+                        %s "%s";
+                     BEGIN
+                        %s;
+                        RAISE NOTICE 'LOL? %%%% ', temp_row_for_update;
+                        UPDATE "%s" set %s WHERE %s;
+                        RETURN NEW;
+                     END;
+        """ % (variable_name, agg.selectable.name, intostmt,
+                agg.selectable.name,
+                ', '.join(values),
+                ' AND '.join(pk_values))
+        function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
+        conn.execute(function_declaration)
 
+        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON "%s" FOR EACH
+            ROW EXECUTE PROCEDURE "%s"()""" % (
+                nc.build_trigger_name(agg.selectable.name),
+                cube.table.name,
+                fn_name))
+        conn.execute(trigger_declaration)
 
     def build(self, schema=None, with_trigger=False):
         """Creates the actual aggregate table.
@@ -250,6 +379,7 @@ class AggBuilder(object):
         query = select(axis_columns.values() + measure_columns +
                 [fact_count_col])
         conn = query.bind.connect()
+        tr = conn.begin()
         conn.execute(CreateTableAs(table_name, query, schema=schema))
 
         # Add it to the metadata via reflection
@@ -258,26 +388,27 @@ class AggBuilder(object):
         table = cube.alchemy_md.tables[table_name]
 
         # Add PK and FK constraints
-        pk = PrimaryKeyConstraint(*[table.c[col.key] for col in
-            axis_columns.values()])
+        pk = PrimaryKeyConstraint(*[table.c[col.key]
+            for axis, col in axis_columns.items()])
         conn.execute(AddConstraint(pk))
         for axis, column in axis_columns.items():
-            if isinstance(axis, ComputedLevel):
-                # DO NOT add foreign key for computed levels!
+            if isinstance(axis, (ComputedLevel, _AllLevel)):
+                # DO NOT add foreign key for computed and all levels!
                 continue
             fk = ForeignKeyConstraint(columns=[column.name],
                     refcolumns=[axis.dim_column],
                     table=table)
             conn.execute(AddConstraint(fk))
-
+        axes = {axis: table.c[column.name] for axis, column in
+            axis_columns.items()}
         # Append the aggregate definition to the cube
-        agg = Aggregate(table, {axis: table.c[column.name] for axis, column in
-            axis_columns.items()},
+        agg = Aggregate(table, axes,
             {measure: table.c[measure.name]
                 for measure in self.query.measures},
             fact_count_column=table.c[fact_count_column_name])
 
         if with_trigger:
-            self.build_trigger(cube, self.query, agg)
+            self.build_trigger(conn, cube, query, agg, self.naming_convention)
+        tr.commit()
 
         cube.aggregates.append(agg)

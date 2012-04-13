@@ -24,7 +24,7 @@ class identity_agg(Aggregator):
     def __nonzero__(self):
         return False
 
-    def accumulator(self, old_value, new_value):
+    def accumulator(self, column_name, new_row, agg_row):
         raise NotImplemented("YOU SHOULD NOT USE IDENTITY AGG IN A TRIGGER")
 
 identity_agg = identity_agg()
@@ -41,8 +41,10 @@ class avg(Aggregator):
                                types.Numeric)))
         return func.avg(column_clause)
 
-    def accumulator(self, oldrow, newrow):
-        pass
+    def accumulator(self, column_name, new_row, agg_row):
+        return (((agg_row.c[column_name] * agg_row.count) +
+                 (new_row.c[column_name] * new_row.count)) /
+                    (agg_row.count + new_row.count))
 
 
 avg = avg()
@@ -53,7 +55,7 @@ class sum(Aggregator):
     def __call__(self, column_clause, cuboid):
         return func.sum(column_clause)
 
-    def accumulator(self, oldrow, newrow):
-        pass
+    def accumulator(self, column_name, new_row, agg_row):
+        return new_row.c[column_name] + agg_row.c[column_name]
 
 sum = sum()
