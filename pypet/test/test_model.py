@@ -55,7 +55,7 @@ class TestModel(BaseTestCase):
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
         # Avg price * total quantity
-        computed = (self.cube.measures['Unit Price'].aggregate_with(None) *
+        computed = (self.cube.measures['Unit Price'] *
                 self.cube.measures['Quantity']).label('measure')
         query = self.cube.query.measure(computed)
         self.compare_agg(query)
@@ -63,14 +63,14 @@ class TestModel(BaseTestCase):
         assert result.keys() == ['All']
         assert result['All'].keys() == ['All']
         assert result['All']['All'].keys() == ['All']
-        assert result['All']['All']['All'].measure == 110770
+        assert result['All']['All']['All'].measure == 110000
 
         computed = ((computed / 1000).aggregate_with(aggregates.sum)
                 .label('measure'))
         query = self.cube.query.measure(computed)
         self.compare_agg(query)
         result = query.execute()
-        assert result['All']['All']['All'].measure == 110770 / 1000.
+        assert result['All']['All']['All'].measure == 110000 / 1000.
 
     def _append_aggregate_by_month(self):
         aggregate = Aggregate(self.agg_by_month_table, {
@@ -83,8 +83,8 @@ class TestModel(BaseTestCase):
                     {self.cube.measures['Unit Price']:
                         self.agg_by_month_table.c['Unit Price'],
                      self.cube.measures['Quantity']:
-                        self.agg_by_month_table.c.Quantity},
-                    fact_count_column=self.agg_by_month_table.c.Quantity)
+                        self.agg_by_month_table.c['Quantity']},
+                    fact_count_column=self.agg_by_month_table.c['Quantity'])
         self.cube.aggregates.append(aggregate)
 
     def compare_agg(self, query, used_agg=None):
