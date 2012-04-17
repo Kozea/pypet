@@ -2,6 +2,8 @@ import pypet
 from sqlalchemy import create_engine
 from sqlalchemy.schema import MetaData
 
+_LEVEL_COUNTER = 0
+
 
 def table(name_or_table, metadata):
     if isinstance(name_or_table, basestring):
@@ -30,17 +32,38 @@ class Declarative(object):
         self.kwargs = kwargs
 
 
+class MetaLevel(type):
+
+    def __new__(cls, classname, bases, classdict):
+        global _LEVEL_COUNTER
+        _LEVEL_COUNTER += 1
+
+        if bases == (Declarative,):  # If Level do nothing
+            return type.__new__(cls, classname, bases, classdict)
+
+        level = pypet.Level(
+            '__unbound__',
+            classdict.get('column', None),
+            classdict.get('label_column', None),
+            classdict.get('label_expression', None))
+        level.definition = type.__new__(cls, classname, bases, classdict)
+        level._count = _LEVEL_COUNTER
+        return level
+
+
 class Level(Declarative):
     """Declarative level with instance counter"""
-    __level_counter = 0
+    __metaclass__ = MetaLevel
 
-    def __init__(self, *args, **kwargs):
-        self.__class__.__level_counter += 1
-        self._count = self.__level_counter
-        super(Level, self).__init__(*args, **kwargs)
+    def __new__(cls, *args, **kwargs):
+        global _LEVEL_COUNTER
+        _LEVEL_COUNTER += 1
 
-    def __call__(self, name):
-        return pypet.Level(name, *self.args, **self.kwargs)
+        args = tuple(['_unbound_'] + list(args))
+        level = pypet.Level(*args, **kwargs)
+        level.definition = cls
+        level._count = _LEVEL_COUNTER
+        return level
 
 
 class Measure(Declarative):
@@ -58,25 +81,20 @@ class Measure(Declarative):
 
 class MetaHierarchy(type):
     def __new__(cls, classname, bases, classdict):
-        if bases == (Declarative,):  # If Cube do nothing
-            return type.__new__(cls, classname, bases, classdict)
+        hierarchy_class = type.__new__(cls, classname, bases, classdict)
+        if bases == (Declarative,):  # If Hierarchy do nothing
+            return hierarchy_class
 
-        classdict['_declaratives'] = {}
-        for base in bases:
-            if hasattr(base, '_declaratives'):
-                for key, value in base._declaratives.items():
-                    classdict['_declaratives'][key] = value
-                    classdict[key] = value
-        levels = {}
-        for key, value in classdict.items():
-            if isinstance(value, Level):
-                classdict['_declaratives'][key] = value
-                levels[value._count] = value(key)
+        levels = []
+        for key in dir(hierarchy_class):
+            value = getattr(hierarchy_class, key)
+            if isinstance(value, pypet.Level):
+                value.name = key
+                levels.append(value)
 
-        levels = [level for _, level
-                  in sorted(levels.items(), key=lambda x: x[0])]
+        levels = sorted(levels, key=lambda x: x._count)
         hierarchy = pypet.Hierarchy('_unbound_', levels)
-        hierarchy.definition = type.__new__(cls, classname, bases, classdict)
+        hierarchy.definition = hierarchy_class
         for level in levels:
             if not hasattr(hierarchy, level.name):
                 setattr(hierarchy, level.name, level)
@@ -91,7 +109,7 @@ class Hierarchy(Declarative):
 class MetaDimension(type):
     def __new__(cls, classname, bases, classdict):
         dimension_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Cube do nothing
+        if bases == (Declarative,):  # If Dimension do nothing
             return dimension_class
 
         hierarchies = []
@@ -101,8 +119,9 @@ class MetaDimension(type):
             if isinstance(value, pypet.Hierarchy):
                 value.name = key
                 hierarchies.append(value)
-            elif isinstance(value, Level):
-                default_levels[value._count] = value(key)
+            elif isinstance(value, pypet.Level):
+                value.name = key
+                default_levels[value._count] = value
 
         if len(default_levels):
             levels = [level for _, level
@@ -114,7 +133,7 @@ class MetaDimension(type):
             hierarchies.append(default_hierarchy)
 
         dimension = pypet.Dimension('_unbound_', hierarchies)
-        dimension.definition = dimension_class
+        dimension.definition = type.__new__(cls, classname, bases, classdict)
         for hierarchy in hierarchies:
             if not hasattr(dimension, hierarchy.name):
                 setattr(dimension, hierarchy.name, hierarchy)
@@ -161,6 +180,7 @@ class MetaCube(type):
             aggregates=classdict.get('__aggregates__', None),
             fact_count_column=column(
                 classdict.get('__fact_count_column__', None), fact_table))
+        cube.definition = cube_class
 
         for thing in dimensions + measures:
             if not hasattr(cube, thing.name):

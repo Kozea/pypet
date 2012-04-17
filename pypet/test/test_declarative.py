@@ -20,30 +20,14 @@ def test_hierarchy():
         l2 = Level()
         l3 = Level()
 
-    class SubTimeHierarchy(TimeHierarchy.definition):
-        l2 = Level()
-
-    class SubSubTimeHierarchy(SubTimeHierarchy.definition):
-        l3 = Level()
-        l4 = Level()
-
     assert isinstance(TimeHierarchy, pypet.Hierarchy)
     assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert SubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert hasattr(SubSubTimeHierarchy, 'l4')
-    assert SubSubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
 
     for key in ('l1', 'l2', 'l3'):
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
-        assert isinstance(getattr(SubTimeHierarchy, key), pypet.Level)
-        assert isinstance(getattr(SubSubTimeHierarchy, key), pypet.Level)
 
         assert getattr(TimeHierarchy, key).name == key
         assert getattr(TimeHierarchy, key) == getattr(TimeHierarchy, key)
-        assert getattr(TimeHierarchy, key) != getattr(SubTimeHierarchy, key)
-        assert getattr(TimeHierarchy, key) != getattr(SubSubTimeHierarchy, key)
-        assert getattr(SubTimeHierarchy, key) != getattr(
-            SubSubTimeHierarchy, key)
 
 
 def test_dimension():
@@ -53,7 +37,7 @@ def test_dimension():
         l2 = Level()
         l3 = Level()
 
-    class TimeHierarchy2(TimeHierarchy.definition):
+    class TimeHierarchy2(Hierarchy):
         l1_2 = Level()
         l2_2 = Level()
         l3_2 = Level()
@@ -71,14 +55,15 @@ def test_dimension():
     assert isinstance(TimeDimension.h1, pypet.Hierarchy)
     assert isinstance(TimeDimension.h1.l1, pypet.Level)
     assert TimeDimension.h1.l1 == TimeDimension.h1.l1
-    assert TimeDimension.h1.l1 != TimeDimension.h2.l1
+    assert TimeDimension.h1.l1 != TimeDimension.h2.l1_2
+    assert TimeDimension.h1.name == 'h1'
+    assert TimeDimension.h1.l1.name == 'l1'
 
     assert TimeDimension.h1.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert TimeDimension.h2.levels.keys() == ['All', 'l1', 'l2', 'l3',
-                                        'l1_2', 'l2_2', 'l3_2']
+    assert TimeDimension.h2.levels.keys() == ['All', 'l1_2', 'l2_2', 'l3_2']
     assert len(TimeDimension.hierarchies) == 2
     assert len([level for h in TimeDimension.hierarchies.values()
-           for level in h.levels]) == 11
+           for level in h.levels]) == 8
     assert TimeDimension.h1 != SpaceDimension.h1
     assert TimeDimension.h1.l1 != SpaceDimension.h1.l1
 
@@ -116,11 +101,14 @@ class TestCube(BaseTestCase):
             country = Level(c('country.country_id'), c('country.country_name'))
             store = Level(c('store.store_id'), c('store.store_name'))
 
-        class ProductDimension(Dimension):
+        class ProductHierarchy(Hierarchy):
             category = Level(c('product_category.product_category_id'),
                              c('product_category.product_category_name'))
             product = Level(c('product.product_id'),
                             c('product.product_name'))
+
+        class ProductDimension(Dimension):
+            default = ProductHierarchy
 
         # class TimeDimension(Dimension):
         #     year = Level()
@@ -146,4 +134,100 @@ class TestCube(BaseTestCase):
         # assert isinstance(TestCube.time.default, pypet.Hierarchy)
         # assert isinstance(TestCube.time.default.day, pypet.Level)
         assert isinstance(TestCube.query, pypet.Query)
-        TestCube.query.axis(StoreDimension.default.region).execute()
+        assert len(
+            TestCube.query.axis(StoreDimension.default.region).execute()) == 2
+
+    def test_cube_nested(self):
+        def c(col):
+            table, column = col.split('.')
+            return self.metadata.tables[table].columns[column]
+
+        class TestCube(Cube):
+            __metadata__ = self.metadata
+            __fact_table__ = 'facts_table'
+            __fact_count_column__ = 'qty'
+
+            class product(Dimension):
+                class default(Hierarchy):
+                    class category(Level):
+                        column = c('product_category.product_category_id')
+                        label_column = c(
+                            'product_category.product_category_name')
+
+                        def label_expression(self, col):
+                            return col + ' %'
+
+                    class product(Level):
+                        column = c('product.product_id')
+                        label_column = c('product.product_name')
+
+            class store(Dimension):
+                region = Level(
+                    c('region.region_id'),
+                    c('region.region_name'))
+                country = Level(
+                    c('country.country_id'),
+                    c('country.country_name'))
+                store = Level(
+                    c('store.store_id'),
+                    c('store.store_name'))
+
+            time = self.time_dim
+
+            price = Measure()
+            quantity = Measure('qty', agg=aggregates.sum)
+
+        assert isinstance(TestCube, pypet.Cube)
+        assert isinstance(TestCube.price, pypet.Measure)
+        assert isinstance(TestCube.quantity, pypet.Measure)
+        assert isinstance(TestCube.time, pypet.Dimension)
+        assert isinstance(TestCube.product, pypet.Dimension)
+        assert isinstance(TestCube.product.default, pypet.Hierarchy)
+        assert isinstance(TestCube.product.default.category, pypet.Level)
+        assert TestCube.product.default.category.name == 'category'
+        assert TestCube.product.default.category.label_expression(None,
+            '42') == '42 %'
+        assert TestCube.product.default.category.column == c(
+            'product_category.product_category_id')
+        assert TestCube.product.default.category.label_column == c(
+            'product_category.product_category_name')
+        assert isinstance(TestCube.store.default, pypet.Hierarchy)
+        # assert isinstance(TestCube.time.default, pypet.Hierarchy)
+        # assert isinstance(TestCube.time.default.day, pypet.Level)
+        assert isinstance(TestCube.query, pypet.Query)
+        assert len(
+            TestCube.query.axis(TestCube.store.default.region).execute()) == 2
+
+
+def fail_test_inheritence_hierarchy():
+
+    class TimeHierarchy(Hierarchy):
+        l1 = Level()
+        l2 = Level()
+        l3 = Level()
+
+    class SubTimeHierarchy(TimeHierarchy.definition):
+        l2 = Level()
+
+    class SubSubTimeHierarchy(SubTimeHierarchy.definition):
+        l3 = Level()
+        l4 = Level()
+
+    assert isinstance(TimeHierarchy, pypet.Hierarchy)
+    assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert SubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert hasattr(SubSubTimeHierarchy, 'l4')
+    assert SubSubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
+
+    for key in ('l1', 'l2', 'l3'):
+        assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
+        assert isinstance(getattr(SubTimeHierarchy, key), pypet.Level)
+        assert isinstance(getattr(SubSubTimeHierarchy, key), pypet.Level)
+
+        assert getattr(TimeHierarchy, key).name == key
+        assert getattr(TimeHierarchy, key) == getattr(TimeHierarchy, key)
+        assert getattr(TimeHierarchy, key) != getattr(SubTimeHierarchy, key)
+        assert getattr(TimeHierarchy, key) != getattr(SubSubTimeHierarchy, key)
+        assert getattr(SubTimeHierarchy, key) != getattr(
+            SubSubTimeHierarchy, key)
+

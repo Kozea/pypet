@@ -380,7 +380,7 @@ class Member(CutPoint):
         self.id = id
         self.label = label
         self.filter = filter
-        self.label_expr = cast(_literal_as_binds(self.label), types.Unicode)
+        self.label_expression = cast(_literal_as_binds(self.label), types.Unicode)
         self.id_expr = _literal_as_binds(self.id)
         self.metadata = metadata or MetaData()
 
@@ -399,7 +399,7 @@ class Member(CutPoint):
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
         id_expr = subs[0]
-        selects = [LabelSelect(self, column_clause=self.label_expr,
+        selects = [LabelSelect(self, column_clause=self.label_expression,
                 name='%s_label' % self._label_for_select, is_constant=True),
                    IdSelect(self, column_clause=self.id_expr,
                     name=self._label_for_select, is_constant=True)]
@@ -421,7 +421,7 @@ class Member(CutPoint):
         if self.level.child_level is None:
             raise ValueError("Cannot build a query for a level without child")
         query = self.level.child_level.members_query
-        join_table_with_query(query, self.level.dim_column.table)
+        join_table_with_query(query, self.level.column.table)
         query = query.where(self.level._id_column == self.id)
         return query
 
@@ -448,14 +448,14 @@ class Member(CutPoint):
 class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
-    def __init__(self, name, dim_column=None, label_column=None,
-            label_expr=lambda x: x,
+    def __init__(self, name, column=None, label_column=None,
+            label_expression=lambda x: x,
             metadata=None):
         self.label_column = (label_column if label_column is not None
-                else dim_column)
+                else column)
         self.name = name
-        self.dim_column = dim_column
-        self.label_expr = label_expr
+        self.column = column
+        self.label_expression = label_expression
         self.child_level = None
         self.parent_level = None
         self.hierarchy = None
@@ -505,14 +505,14 @@ class Level(CutPoint):
 
     @_generative
     def replace_expr(self, expr, label_column=None):
-        self.dim_column = expr
+        self.column = expr
         self.child_level = None
         if label_column is not None:
             self.label_column = label_column
 
     @_generative
-    def replace_label_expr(self, label_expr):
-        self.label_expr = label_expr
+    def replace_label_expression(self, label_expression):
+        self.label_expression = label_expression
 
     @_generative
     def replace_level(self, level):
@@ -520,11 +520,11 @@ class Level(CutPoint):
 
     @property
     def _label_column(self):
-        return self.label_expr(self.label_column)
+        return self.label_expression(self.label_column)
 
     @property
     def _id_column(self):
-        return self.dim_column
+        return self.column
 
     def _as_selects(self, cuboid=None):
         sub_selects = []
@@ -537,9 +537,9 @@ class Level(CutPoint):
             column_clause=self._label_column,
                     name='%s_label' % self._label_for_select,
                     dependencies=[],
-                    joins=sub_joins + [self.dim_column.table,
+                    joins=sub_joins + [self.column.table,
                         self.label_column.table]),
-                IdSelect(self, column_clause=self.dim_column,
+                IdSelect(self, column_clause=self.column,
                     name=self._label_for_select,
                     dependencies=[],
                     joins=sub_joins + [self._id_column.table,
@@ -549,8 +549,8 @@ class Level(CutPoint):
         for level in aggregate.levels:
             if level.dimension == self.dimension:
                 if level.name == self.name:
-                    dim_column = aggregate.levels.get(level)
-                    return self.replace_expr(dim_column)
+                    column = aggregate.levels.get(level)
+                    return self.replace_expr(column)
                 else:
                     if self.child_level is None:
                         raise KeyError('Cannot find matching level in'
@@ -584,29 +584,29 @@ class Level(CutPoint):
 
 class ComputedLevel(Level):
 
-    def __init__(self, name, dim_column=None, label_expr=None,
+    def __init__(self, name, column=None, label_expression=None,
             function=lambda x: x, metadata=None):
-        super(ComputedLevel, self).__init__(name, dim_column,
-                label_expr=label_expr, metadata=None)
+        super(ComputedLevel, self).__init__(name, column,
+                label_expression=label_expression, metadata=None)
         self.function = function
         self.metadata = metadata or MetaData()
 
     @_generative
     def replace_level(self, level):
         self.child_level = level
-        self.dim_column = level.dim_column
+        self.column = level.column
 
     @property
     def _id_column(self):
-        return self.function(self.dim_column).label(self.name)
+        return self.function(self.column).label(self.name)
 
     @property
     def _label_column(self):
-        return self.label_expr(self._id_column)
+        return self.label_expression(self._id_column)
 
     def _as_selects(self, cuboid=None):
         col = self._id_column
-        dep = IdSelect(self, column_clause=self.dim_column)
+        dep = IdSelect(self, column_clause=self.column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
             dependencies=[dep]),
             LabelSelect(self, name='%s_label' % self._label_for_select,
@@ -620,13 +620,13 @@ class _AllLevel(Level):
     def __init__(self, name='All', label='All', metadata=None):
         self.label = label
         self.name = name
-        self.label_expr = cast(_literal_as_binds(self.label), types.Unicode)
+        self.label_expression = cast(_literal_as_binds(self.label), types.Unicode)
         self.parent_level = None
         self.metadata = metadata or MetaData()
 
     def _as_selects(self, cuboid=None):
         return [LabelSelect(self, name=self._label_for_select,
-            column_clause=self.label_expr, is_constant=True)]
+            column_clause=self.label_expression, is_constant=True)]
 
     def _simplifiy(self, query):
         return self
