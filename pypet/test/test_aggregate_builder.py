@@ -26,7 +26,6 @@ class TestAggregateBuilder(BaseTestCase):
         assert other_query.execute() == facts_table_other_result
 
     def test_matching(self):
-        return
         c = self.cube
         query = c.query.axis(c.d['time'].l['month'],
                 c.d['store'].l['region'])
@@ -69,6 +68,7 @@ class TestTriggers(BaseTestCase):
         builder = AggBuilder(query)
         builder.build(with_trigger=True)
         old_total_qty = c.query.axis().execute()["Quantity"]
+        # Test with a value already in the agg table
         c.table.insert({
             'store_id': 1,
             'product_id': 2,
@@ -83,6 +83,25 @@ class TestTriggers(BaseTestCase):
         assert 'facts_table' not in str(c.query._as_sql())
         assert newresult == result
         assert newresult["Quantity"] == old_total_qty + 200
+        # Test with a new value (insert statement)
+        c.table.insert({
+            'store_id': 1,
+            'product_id': 2,
+            'date': '2020-01-12',
+            'qty': 200,
+            'price': 1000}).execute()
+        oldaggs = c.aggregates
+        c.aggregates = []
+        result = c.query.axis().execute()
+        c.aggregates = oldaggs
+        newresult = c.query.axis().execute()
+        assert 'facts_table' not in str(c.query._as_sql())
+        assert newresult == result
+        assert newresult["Quantity"] == old_total_qty + 400
+        res = c.query.axis(c.d['time'].l['year']).filter(
+                c.d['time'].l['year'].member_by_label('2020')).execute()
+        assert len(res) == 1
+        assert res.by_label()['2020'].Quantity == 200
 
     def tearDown(self):
         self.cube.table.bind.execute('DROP FUNCTION "%s"() CASCADE;'
