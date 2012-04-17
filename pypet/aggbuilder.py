@@ -413,7 +413,7 @@ class AggBuilder(object):
                 # DO NOT add foreign key for computed and all levels!
                 continue
             fk = ForeignKeyConstraint(columns=[column.name],
-                    refcolumns=[axis.dim_column],
+                    refcolumns=[axis.column],
                     table=table)
             conn.execute(AddConstraint(fk))
         axes = {axis: table.c[column.name] for axis, column in

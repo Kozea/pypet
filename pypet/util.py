@@ -12,7 +12,7 @@ FORMAT_FUNCTIONS = {
 
 class TimeLevel(ComputedLevel):
 
-    def __init__(self, name, dim_column, time_slice=None):
+    def __init__(self, name, column, time_slice=None):
         if time_slice is None:
             time_slice = name
 
@@ -21,14 +21,14 @@ class TimeLevel(ComputedLevel):
 
         def partial_extract(column):
             return extract(time_slice, column)
-        label_expr = FORMAT_FUNCTIONS.get(time_slice, partial_extract)
-        super(TimeLevel, self).__init__(name, dim_column,
-                function=partial_trunc, label_expr=label_expr)
+        label_expression = FORMAT_FUNCTIONS.get(time_slice, partial_extract)
+        super(TimeLevel, self).__init__(name, column,
+                function=partial_trunc, label_expression=label_expression)
 
 
 class TimeDimension(Dimension):
 
-    def __init__(self, name, dim_column, time_levels):
-        levels = [TimeLevel(level, dim_column) for level in time_levels]
+    def __init__(self, name, column, time_levels):
+        levels = [TimeLevel(level, column) for level in time_levels]
         super(TimeDimension, self).__init__(name, [Hierarchy('default',
             levels)])
