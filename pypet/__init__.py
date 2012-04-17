@@ -450,12 +450,14 @@ class Level(CutPoint):
     """A level in a dimension hierarchy."""
 
     def __init__(self, name, column=None, label_column=None,
-            label_expression=lambda x: x,
+            label_expression=None,
             metadata=None):
         self.label_column = (label_column if label_column is not None
                 else column)
         self.name = name
         self.column = column
+        if label_expression is None:
+            label_expression = lambda x: x
         self.label_expression = label_expression
         self.child_level = None
         self.parent_level = None

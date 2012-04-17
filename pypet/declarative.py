@@ -4,6 +4,7 @@ from sqlalchemy.schema import MetaData
 
 _LEVEL_COUNTER = 0
 
+UNKNOWN_VALUE = object()
 
 def table(name_or_table, metadata):
     if isinstance(name_or_table, basestring):
@@ -85,7 +86,7 @@ class MetaMeasure(type):
 
         measure = pypet.Measure(
             '_unbound_',
-            classdict.get('expression', '_unknown_'),
+            classdict.get('expression', UNKNOWN_VALUE),
             classdict.get('agg', None),
             metadata=metadata)
         measure.definition = measure_class
@@ -99,7 +100,7 @@ class Measure(Declarative):
     def __new__(cls, *args, **kwargs):
         args = ['_unbound_'] + list(args)
         if len(args) == 1:
-            args = args + ['_unknown_']
+            args = args + [UNKNOWN_VALUE]
         measure = pypet.Measure(*args, **kwargs)
         measure.definition = cls
         return measure
@@ -207,9 +208,11 @@ class MetaCube(type):
                 dimensions.append(value)
             elif isinstance(value, pypet.Measure):
                 value.name = key
-                if value.expression == '_unknown_':
+                expr = getattr(value, 'expression', None)
+                if expr is UNKNOWN_VALUE:
                     value.expression = key
-                value.expression = column(value.expression, fact_table)
+                if expr is not None:
+                    value.expression = column(value.expression, fact_table)
                 measures.append(value)
 
         cube = pypet.Cube(
