@@ -380,7 +380,8 @@ class Member(CutPoint):
         self.id = id
         self.label = label
         self.filter = filter
-        self.label_expression = cast(_literal_as_binds(self.label), types.Unicode)
+        self.label_expression = cast(_literal_as_binds(self.label),
+                types.Unicode)
         self.id_expr = _literal_as_binds(self.id)
         self.metadata = metadata or MetaData()
 
@@ -620,7 +621,8 @@ class _AllLevel(Level):
     def __init__(self, name='All', label='All', metadata=None):
         self.label = label
         self.name = name
-        self.label_expression = cast(_literal_as_binds(self.label), types.Unicode)
+        self.label_expression = cast(_literal_as_binds(self.label),
+                types.Unicode)
         self.parent_level = None
         self.metadata = metadata or MetaData()
 

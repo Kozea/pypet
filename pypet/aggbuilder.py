@@ -277,30 +277,44 @@ class AggBuilder(object):
 
     def build_trigger(self, conn, cube, sql_query, agg,
             nc=NamingConvention):
+        # Adapt the query to the "new" table structure
         new_query = adapt_query(sql_query, cube.table).alias()
+
+        # Declare two new from_clauses, corresponding to the NEW row, and the
+        # matching AGG row.
         new_row = AccumulatorRow(new_query, agg)
         agg_row = AccumulatorRow(agg.selectable, agg)
         transformations = {}
         primary_keys = {}
+        # Add the necessary transformations through the measures accumulators
         for name, expr in agg.measures_expr.items():
             measure = agg.measures[name]
             transformations[expr.name] = (measure.agg.accumulator(expr.name,
                 new_row, agg_row).label(expr.name))
+
+        # Update the fact count
         transformations[agg.fact_count_column.name] = (
                 new_row.c[agg.fact_count_column.name] +
                 func.coalesce(agg_row.c[agg.fact_count_column.name], 0)).label(
                         agg.fact_count_column.name)
+
+        # We're going to "LEFT OUTER JOIN" the new row to the matching
+        # aggregate row, building a filter clasue for this
         filter_clause = []
         for name, expr in agg.levels.items():
             primary_keys[expr.name] = new_row.c[expr.name]
             filter_clause.append(new_row.c[expr.name] == agg_row.c[expr.name])
+
         agg_column_names = [col.name for col in agg.selectable.c]
+
         values = sorted(transformations.values() + primary_keys.values(),
                 key=lambda x: agg_column_names.index(x.name))
+
         from_obj = new_row.outerjoin(agg.selectable,
             onclause=and_(*filter_clause))
-        select_statement = select(values, from_obj=from_obj).correlate(new_query,
-                 agg.selectable)
+        select_statement = (select(values, from_obj=from_obj)
+                                .correlate(new_query, agg.selectable))
+
         fn_name = nc.build_trigger_function_name(
                 agg.selectable.name)
         variable_name = 'temp_row_for_update'
@@ -343,8 +357,8 @@ class AggBuilder(object):
         function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
         conn.execute(function_declaration)
 
-        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON "%s" FOR EACH
-            ROW EXECUTE PROCEDURE "%s"()""" % (
+        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON "%s"
+            FOR EACH ROW EXECUTE PROCEDURE "%s"()""" % (
                 nc.build_trigger_name(agg.selectable.name),
                 cube.table.name,
                 fn_name))
