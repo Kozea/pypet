@@ -37,16 +37,22 @@ class MetaLevel(type):
     def __new__(cls, classname, bases, classdict):
         global _LEVEL_COUNTER
         _LEVEL_COUNTER += 1
-
+        level_class = type.__new__(cls, classname, bases, classdict)
         if bases == (Declarative,):  # If Level do nothing
-            return type.__new__(cls, classname, bases, classdict)
+            return level_class
+
+        metadata = pypet.MetaData()
+        for key in dir(level_class):
+            if key not in ('column', 'label_column', 'label_expression'
+            ) and not key.startswith('__'):
+                metadata[key] = getattr(level_class, key)
 
         level = pypet.Level(
             '__unbound__',
             classdict.get('column', None),
             classdict.get('label_column', None),
-            classdict.get('label_expression', None))
-        level.definition = type.__new__(cls, classname, bases, classdict)
+            classdict.get('label_expression', None), metadata=metadata)
+        level.definition = level_class
         level._count = _LEVEL_COUNTER
         return level
 
@@ -86,14 +92,17 @@ class MetaHierarchy(type):
             return hierarchy_class
 
         levels = []
+        metadata = pypet.MetaData()
         for key in dir(hierarchy_class):
             value = getattr(hierarchy_class, key)
             if isinstance(value, pypet.Level):
                 value.name = key
                 levels.append(value)
+            elif not key.startswith('__'):
+                metadata[key] = value
 
         levels = sorted(levels, key=lambda x: x._count)
-        hierarchy = pypet.Hierarchy('_unbound_', levels)
+        hierarchy = pypet.Hierarchy('_unbound_', levels, metadata=metadata)
         hierarchy.definition = hierarchy_class
         for level in levels:
             if not hasattr(hierarchy, level.name):
@@ -114,6 +123,7 @@ class MetaDimension(type):
 
         hierarchies = []
         default_levels = {}
+        metadata = pypet.MetaData()
         for key in dir(dimension_class):
             value = getattr(dimension_class, key)
             if isinstance(value, pypet.Hierarchy):
@@ -122,6 +132,8 @@ class MetaDimension(type):
             elif isinstance(value, pypet.Level):
                 value.name = key
                 default_levels[value._count] = value
+            elif not key.startswith('__'):
+                metadata[key] = value
 
         if len(default_levels):
             levels = [level for _, level
@@ -132,7 +144,8 @@ class MetaDimension(type):
                     setattr(default_hierarchy, level.name, level)
             hierarchies.append(default_hierarchy)
 
-        dimension = pypet.Dimension('_unbound_', hierarchies)
+        dimension = pypet.Dimension(
+            '_unbound_', hierarchies, metadata=metadata)
         dimension.definition = type.__new__(cls, classname, bases, classdict)
         for hierarchy in hierarchies:
             if not hasattr(dimension, hierarchy.name):

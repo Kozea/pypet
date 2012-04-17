@@ -7,21 +7,30 @@ from pypet.declarative import Level, Hierarchy, Dimension, Measure, Cube
 def test_level():
     l1 = Level()
     l2 = Level()
-    l3 = Level()
+
+    class l3(Level):
+        foo = "bar"
+
     levels = [l2, l3, l1]
     sorted_levels = sorted(levels, key=lambda x: x._count)
     assert sorted_levels == [l1, l2, l3]
+    assert l3.metadata == {'foo': 'bar'}
 
 
 def test_hierarchy():
 
     class TimeHierarchy(Hierarchy):
+        label = "This is time"
+        thing = "This is one thing"
         l1 = Level()
         l2 = Level()
         l3 = Level()
 
     assert isinstance(TimeHierarchy, pypet.Hierarchy)
     assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert TimeHierarchy.metadata == {
+        'label': "This is time",
+        'thing': "This is one thing"}
 
     for key in ('l1', 'l2', 'l3'):
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
@@ -46,6 +55,7 @@ def test_dimension():
         l1 = Level()
 
     class TimeDimension(Dimension):
+        time = 'Label it is'
         h1 = TimeHierarchy
         h2 = TimeHierarchy2
 
@@ -58,6 +68,7 @@ def test_dimension():
     assert TimeDimension.h1.l1 != TimeDimension.h2.l1_2
     assert TimeDimension.h1.name == 'h1'
     assert TimeDimension.h1.l1.name == 'l1'
+    assert TimeDimension.metadata == {'time': 'Label it is'}
 
     assert TimeDimension.h1.levels.keys() == ['All', 'l1', 'l2', 'l3']
     assert TimeDimension.h2.levels.keys() == ['All', 'l1_2', 'l2_2', 'l3_2']
