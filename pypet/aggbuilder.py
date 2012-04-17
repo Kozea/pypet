@@ -288,7 +288,8 @@ class AggBuilder(object):
                 new_row, agg_row).label(expr.name))
         transformations[agg.fact_count_column.name] = (
                 new_row.c[agg.fact_count_column.name] +
-                agg_row.c[agg.fact_count_column.name]).label(agg.fact_count_column.name)
+                func.coalesce(agg_row.c[agg.fact_count_column.name], 0)).label(
+                        agg.fact_count_column.name)
         filter_clause = []
         for name, expr in agg.levels.items():
             primary_keys[expr.name] = new_row.c[expr.name]
@@ -296,7 +297,10 @@ class AggBuilder(object):
         agg_column_names = [col.name for col in agg.selectable.c]
         values = sorted(transformations.values() + primary_keys.values(),
                 key=lambda x: agg_column_names.index(x.name))
-        select_statement = select(values).where(and_(*filter_clause))
+        from_obj = new_row.outerjoin(agg.selectable,
+            onclause=and_(*filter_clause))
+        select_statement = select(values, from_obj=from_obj).correlate(new_query,
+                 agg.selectable)
         fn_name = nc.build_trigger_function_name(
                 agg.selectable.name)
         variable_name = 'temp_row_for_update'
@@ -311,18 +315,31 @@ class AggBuilder(object):
         pk_values = []
         for name in primary_keys:
             pk_values.append('"%s" = %s."%s"' % (name, variable_name, name))
+        insert_keys = []
+        insert_values = []
+        for col in agg.selectable.c:
+            insert_keys.append('"%s"' % col.name)
+            insert_values.append('%s."%s"' % (variable_name, col.name))
+        insert_stmt = 'INSERT INTO "%s" (%s) (SELECT %s) ' % (
+                agg.selectable.name,
+                ', '.join(insert_keys),
+                ', '.join(insert_values))
         fn_body = """DECLARE
                         %s "%s";
                      BEGIN
                         %s;
-                        RAISE NOTICE 'LOL? %%%% ', temp_row_for_update;
                         UPDATE "%s" set %s WHERE %s;
+                        IF NOT FOUND THEN
+                            %s ;
+                        END IF;
                         RETURN NEW;
                      END;
         """ % (variable_name, agg.selectable.name, intostmt,
                 agg.selectable.name,
                 ', '.join(values),
-                ' AND '.join(pk_values))
+                ' AND '.join(pk_values),
+                insert_stmt
+                )
         function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
         conn.execute(function_declaration)
 

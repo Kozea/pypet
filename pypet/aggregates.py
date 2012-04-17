@@ -42,9 +42,10 @@ class avg(Aggregator):
         return func.avg(column_clause)
 
     def accumulator(self, column_name, new_row, agg_row):
-        return (((agg_row.c[column_name] * agg_row.count) +
+        return (((func.coalesce(agg_row.c[column_name], 0) *
+            func.coalesce(agg_row.count, 0)) +
                  (new_row.c[column_name] * new_row.count)) /
-                    (agg_row.count + new_row.count))
+                    (func.coalesce(agg_row.count, 0) + new_row.count))
 
 
 avg = avg()
@@ -56,6 +57,7 @@ class sum(Aggregator):
         return func.sum(column_clause)
 
     def accumulator(self, column_name, new_row, agg_row):
-        return new_row.c[column_name] + agg_row.c[column_name]
+        return (new_row.c[column_name] +
+                func.coalesce(agg_row.c[column_name], 0))
 
 sum = sum()
