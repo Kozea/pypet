@@ -26,10 +26,7 @@ def column(name_or_column, table):
 
 
 class Declarative(object):
-
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
+    """Declarative"""
 
 
 class MetaLevel(type):
@@ -48,10 +45,11 @@ class MetaLevel(type):
                 metadata[key] = getattr(level_class, key)
 
         level = pypet.Level(
-            '__unbound__',
+            '_unbound_',
             classdict.get('column', None),
             classdict.get('label_column', None),
-            classdict.get('label_expression', None), metadata=metadata)
+            classdict.get('label_expression', None),
+            metadata=metadata)
         level.definition = level_class
         level._count = _LEVEL_COUNTER
         return level
@@ -72,17 +70,39 @@ class Level(Declarative):
         return level
 
 
-class Measure(Declarative):
-    """Declarative measure"""
+class MetaMeasure(type):
 
-    def __call__(self, name, table):
-        if len(self.args):
-            expr = self.args[0]
-            self.args = self.args[1:]
-        else:
-            expr = name
-        expression = column(expr, table)
-        return pypet.Measure(name, expression, *self.args, **self.kwargs)
+    def __new__(cls, classname, bases, classdict):
+        measure_class = type.__new__(cls, classname, bases, classdict)
+        if bases == (Declarative,):  # If Measure do nothing
+            return measure_class
+
+        metadata = pypet.MetaData()
+        for key in dir(measure_class):
+            if key not in ('expression', 'agg'
+            ) and not key.startswith('__'):
+                metadata[key] = getattr(measure_class, key)
+
+        measure = pypet.Measure(
+            '_unbound_',
+            classdict.get('expression', '_unknown_'),
+            classdict.get('agg', None),
+            metadata=metadata)
+        measure.definition = measure_class
+        return measure
+
+
+class Measure(Declarative):
+    """Declarative measure with instance counter"""
+    __metaclass__ = MetaMeasure
+
+    def __new__(cls, *args, **kwargs):
+        args = ['_unbound_'] + list(args)
+        if len(args) == 1:
+            args = args + ['_unknown_']
+        measure = pypet.Measure(*args, **kwargs)
+        measure.definition = cls
+        return measure
 
 
 class MetaHierarchy(type):
@@ -185,8 +205,12 @@ class MetaCube(type):
             if isinstance(value, pypet.Dimension):
                 value.name = key
                 dimensions.append(value)
-            elif isinstance(value, Measure):
-                measures.append(value(key, fact_table))
+            elif isinstance(value, pypet.Measure):
+                value.name = key
+                if value.expression == '_unknown_':
+                    value.expression = key
+                value.expression = column(value.expression, fact_table)
+                measures.append(value)
 
         cube = pypet.Cube(
             metadata, fact_table, dimensions, measures,

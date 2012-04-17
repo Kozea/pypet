@@ -185,7 +185,9 @@ class TestCube(BaseTestCase):
 
             time = self.time_dim
 
-            price = Measure()
+            class price(Measure):
+                label = 'prix'
+
             quantity = Measure('qty', agg=aggregates.sum)
 
         assert isinstance(TestCube, pypet.Cube)
