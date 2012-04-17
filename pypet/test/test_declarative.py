@@ -140,6 +140,8 @@ class TestCube(BaseTestCase):
 
         assert isinstance(TestCube, pypet.Cube)
         assert isinstance(TestCube.price, pypet.Measure)
+        assert TestCube.price.name == 'price'
+        assert TestCube.price.expression == c('facts_table.price')
         assert isinstance(TestCube.quantity, pypet.Measure)
         assert isinstance(TestCube.time, pypet.Dimension)
         # assert isinstance(TestCube.time.default, pypet.Hierarchy)
@@ -185,7 +187,9 @@ class TestCube(BaseTestCase):
 
             time = self.time_dim
 
-            price = Measure()
+            class price(Measure):
+                label = 'prix'
+
             quantity = Measure('qty', agg=aggregates.sum)
 
         assert isinstance(TestCube, pypet.Cube)
