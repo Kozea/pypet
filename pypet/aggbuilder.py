@@ -362,11 +362,16 @@ class AggBuilder(object):
                 )
         function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
         conn.execute(function_declaration)
+        if cube.table.schema is not None:
+            base_table_qualified_name = '"%s"."%s"' % (cube.table.schema,
+                    cube.table.name)
+        else:
+            base_table_qualified_name = '"%s"' % cube.table.name
 
         trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON %s
             FOR EACH ROW EXECUTE PROCEDURE "%s"()""" % (
                 nc.build_trigger_name(agg.selectable.name),
-                cube.table.name,
+                base_table_qualified_name,
                 fn_name))
         conn.execute(trigger_declaration)
 
@@ -392,20 +397,20 @@ class AggBuilder(object):
         table_name = self.naming_convention.build_table_name(self.query.axes,
                 measures)
         query = self.query._generate()
+        fact_count_column_name = (self.naming_convention.
+                build_fact_count_column_name())
+
         if cube.fact_count_column is not None:
-            query.measures.append(Measure('__fact_count__',
+            query.measures.append(Measure(fact_count_column_name,
                     cube.fact_count_column, aggregates.sum))
         else:
-            query.measures.append(Measure('__fact_count__',
+            query.measures.append(Measure(fact_count_column_name,
                     func.count(1), aggregates.sum))
         sql_query = query._as_sql()
         # Work on the "raw" query to add the fact count column
-        fact_count_column_name = (self.naming_convention.
-                build_fact_count_column_name())
         sql_query = sql_query.alias()
-        fact_count_col = (sql_query.c['__fact_count__']
+        fact_count_col = (sql_query.c[fact_count_column_name]
                 .label(fact_count_column_name))
-
         # Build aliases for axes and measures
         for axis in axes:
             label = self.naming_convention.build_level_name(axis)
