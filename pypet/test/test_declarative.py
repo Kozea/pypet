@@ -7,14 +7,22 @@ from pypet.declarative import Level, Hierarchy, Dimension, Measure, Cube
 def test_level():
     l1 = Level()
     l2 = Level()
+    l3 = Level()
 
-    class l3(Level):
+    class l4(Level):
         foo = "bar"
+    l5 = Level()
+    l6 = Level()
 
-    levels = [l2, l3, l1]
+    class l7(Level):
+        foo = "baz"
+    l8 = Level()
+
+    levels = [l2, l3, l5, l1, l7, l8, l6, l4]
     sorted_levels = sorted(levels, key=lambda x: x._count)
-    assert sorted_levels == [l1, l2, l3]
-    assert l3.metadata == {'foo': 'bar'}
+    assert sorted_levels == [l1, l2, l3, l4, l5, l6, l7, l8]
+    assert l4.metadata == {'foo': 'bar'}
+    assert l7.metadata == {'foo': 'baz'}
 
 
 def test_hierarchy():

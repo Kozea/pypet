@@ -2,7 +2,6 @@ import pypet
 from sqlalchemy import create_engine
 from sqlalchemy.schema import MetaData
 
-_LEVEL_COUNTER = 0
 
 UNKNOWN_VALUE = object()
 
@@ -26,53 +25,66 @@ def column(name_or_column, table):
         return column
     return name_or_column
 
+_COUNTERS = {}
+
+
+class MetaDeclarative(type):
+    def __new__(mcs, classname, bases, classdict):
+        global _COUNTERS
+        cls = bases[0]
+        class_ = type.__new__(mcs, classname, bases, classdict)
+        if bases == (Declarative,):  # If Level do nothing
+            return class_
+
+        _COUNTERS[cls] = _COUNTERS.get(cls, 0) + 1
+        instance = mcs._make_instance(mcs, class_, classdict)
+        instance._count = _COUNTERS[cls]
+        instance.definition = class_
+
+        return instance
+
 
 class Declarative(object):
     """Declarative"""
 
+    def __new__(cls, *args, **kwargs):
+        global _COUNTERS
+        _COUNTERS[cls] = _COUNTERS.get(cls, 0) + 1
+        instance = cls._make_instance(cls, *args, **kwargs)
+        instance._count = _COUNTERS[cls]
+        instance.definition = cls
+        return instance
 
-class MetaLevel(type):
 
-    def __new__(cls, classname, bases, classdict):
-        global _LEVEL_COUNTER
-        _LEVEL_COUNTER += 1
-        level_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Level do nothing
-            return level_class
+class MetaLevel(MetaDeclarative):
 
+    @staticmethod
+    def _make_instance(mcs, class_, classdict):
         metadata = pypet.MetaData()
-        for key in dir(level_class):
+        for key in dir(class_):
             if key not in ('column', 'label_column', 'label_expression'
-            ) and not key.startswith('__'):
-                metadata[key] = getattr(level_class, key)
+            ) and not key.startswith('_'):
+                metadata[key] = getattr(class_, key)
 
-        level = pypet.Level(
+        return pypet.Level(
             '_unbound_',
             classdict.get('column', None),
             classdict.get('label_column', None),
             classdict.get('label_expression', None),
             metadata=metadata)
-        level.definition = level_class
-        level._count = _LEVEL_COUNTER
-        return level
 
 
 class Level(Declarative):
     """Declarative level with instance counter"""
     __metaclass__ = MetaLevel
 
-    def __new__(cls, *args, **kwargs):
-        global _LEVEL_COUNTER
-        _LEVEL_COUNTER += 1
-
+    @staticmethod
+    def _make_instance(cls, *args, **kwargs):
         args = tuple(['_unbound_'] + list(args))
-        level = pypet.Level(*args, **kwargs)
-        level.definition = cls
-        level._count = _LEVEL_COUNTER
-        return level
+        return pypet.Level(*args, **kwargs)
 
 
-class MetaMeasure(type):
+class MetaMeasure(MetaDeclarative):
 
     def __new__(cls, classname, bases, classdict):
         measure_class = type.__new__(cls, classname, bases, classdict)
@@ -82,7 +94,7 @@ class MetaMeasure(type):
         metadata = pypet.MetaData()
         for key in dir(measure_class):
             if key not in ('expression', 'agg'
-            ) and not key.startswith('__'):
+            ) and not key.startswith('_'):
                 metadata[key] = getattr(measure_class, key)
 
         measure = pypet.Measure(
@@ -107,7 +119,7 @@ class Measure(Declarative):
         return measure
 
 
-class MetaHierarchy(type):
+class MetaHierarchy(MetaDeclarative):
     def __new__(cls, classname, bases, classdict):
         hierarchy_class = type.__new__(cls, classname, bases, classdict)
         if bases == (Declarative,):  # If Hierarchy do nothing
@@ -120,7 +132,7 @@ class MetaHierarchy(type):
             if isinstance(value, pypet.Level):
                 value.name = key
                 levels.append(value)
-            elif not key.startswith('__'):
+            elif not key.startswith('_'):
                 metadata[key] = value
 
         levels = sorted(levels, key=lambda x: x._count)
@@ -137,7 +149,7 @@ class Hierarchy(Declarative):
     __metaclass__ = MetaHierarchy
 
 
-class MetaDimension(type):
+class MetaDimension(MetaDeclarative):
     def __new__(cls, classname, bases, classdict):
         dimension_class = type.__new__(cls, classname, bases, classdict)
         if bases == (Declarative,):  # If Dimension do nothing
@@ -154,7 +166,7 @@ class MetaDimension(type):
             elif isinstance(value, pypet.Level):
                 value.name = key
                 default_levels[value._count] = value
-            elif not key.startswith('__'):
+            elif not key.startswith('_'):
                 metadata[key] = value
 
         if len(default_levels):
@@ -180,7 +192,7 @@ class Dimension(Declarative):
     __metaclass__ = MetaDimension
 
 
-class MetaCube(type):
+class MetaCube(MetaDeclarative):
     def __new__(cls, classname, bases, classdict):
         cube_class = type.__new__(cls, classname, bases, classdict)
         if bases == (Declarative,):  # If Cube do nothing
