@@ -83,6 +83,7 @@ def test_dimension():
     assert len(TimeDimension.hierarchies) == 2
     assert len([level for h in TimeDimension.hierarchies.values()
            for level in h.levels]) == 8
+    assert TimeDimension.h.keys() == ['h1', 'h2']
     assert TimeDimension.h1 != SpaceDimension.h1
     assert TimeDimension.h1.l1 != SpaceDimension.h1.l1
 
@@ -107,6 +108,7 @@ def test_level_in_dimension():
     assert TimeDimension.default.l.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
     assert hasattr(TimeDimension.default, 'l1')
     assert hasattr(TimeDimension.default, 'l2')
+    assert TimeDimension.h.keys() == ['default', 'h1']
 
 
 class TestCube(BaseTestCase):
@@ -146,6 +148,8 @@ class TestCube(BaseTestCase):
             price = Measure()
             quantity = Measure('qty', agg=aggregates.sum)
 
+        assert TestCube.d.keys() == ['store', 'product', 'time']
+        assert TestCube.m.keys() == ['price', 'quantity']
         assert isinstance(TestCube, pypet.Cube)
         assert isinstance(TestCube.price, pypet.Measure)
         assert TestCube.price.name == 'price'

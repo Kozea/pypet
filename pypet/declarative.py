@@ -127,7 +127,8 @@ class MetaHierarchy(MetaDeclarative):
             elif not key.startswith('_'):
                 metadata[key] = value
 
-        levels = sorted(levels, key=lambda x: x._count)
+        levels = sorted(levels,
+                        key=lambda x: getattr(x, '_count', float('inf')))
         hierarchy = pypet.Hierarchy('_unbound_', levels, metadata=metadata)
         for level in levels:
             if not hasattr(hierarchy, level.name):
@@ -160,13 +161,16 @@ class MetaDimension(MetaDeclarative):
 
         if len(default_levels):
             levels = [level for _, level
-                      in sorted(default_levels.items(), key=lambda x: x[0])]
+                      in sorted(default_levels.items(),
+                        key=lambda x: x[0])]
             default_hierarchy = pypet.Hierarchy('default', levels)
+            default_hierarchy._count = -1
             for level in levels:
                 if not hasattr(default_hierarchy, level.name):
                     setattr(default_hierarchy, level.name, level)
             hierarchies.append(default_hierarchy)
-
+        hierarchies = sorted(hierarchies,
+                        key=lambda x: getattr(x, '_count', float('inf')))
         dimension = pypet.Dimension(
             '_unbound_', hierarchies, metadata=metadata)
         for hierarchy in hierarchies:
@@ -215,6 +219,10 @@ class MetaCube(MetaDeclarative):
                     value.expression = column(value.expression, fact_table)
                 measures.append(value)
 
+        dimensions = sorted(dimensions,
+                        key=lambda x: getattr(x, '_count', float('inf')))
+        measures = sorted(measures,
+                        key=lambda x: getattr(x, '_count', float('inf')))
         cube = pypet.Cube(
             metadata, fact_table, dimensions, measures,
             aggregates=classdict.get('__aggregates__', None),

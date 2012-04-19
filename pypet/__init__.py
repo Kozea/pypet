@@ -694,7 +694,8 @@ class Dimension(object):
         self.name = name
         for hierarchy in hierarchies:
             hierarchy.bind(self)
-        self.hierarchies = {hiera.name: hiera for hiera in hierarchies}
+        self.hierarchies = OrderedDict(
+            (hiera.name, hiera) for hiera in hierarchies)
         self.metadata = metadata or MetaData()
 
     @property
