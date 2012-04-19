@@ -632,8 +632,20 @@ class _AllLevel(Level):
         return [LabelSelect(self, name=self._label_for_select,
             column_clause=self.label_expression, is_constant=True)]
 
-    def _simplifiy(self, query):
+    def _simplify(self, query):
         return self
+
+    def _adapt(self, aggregate):
+        return self
+
+    def _score(self, agg):
+        score, dims = super(_AllLevel, self)._score(agg)
+        if score < 0:
+            # The dimension itself is not in the table, therefore the rows
+            # represent the total
+            return 1, dims
+        else:
+            return score * 0.5, dims
 
 
 class Hierarchy(object):

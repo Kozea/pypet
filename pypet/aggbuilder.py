@@ -4,7 +4,7 @@ from sqlalchemy.sql import select, func, and_
 from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
     FromClause, ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
-from pypet import Level, ComputedLevel, Aggregate, _AllLevel
+from pypet import Level, ComputedLevel, Aggregate, _AllLevel, Measure
 from psycopg2.extensions import adapt as sqlescape
 import re
 
@@ -382,8 +382,10 @@ class AggBuilder(object):
         axis_columns = {}
         measure_columns = []
         cube = self.query.cuboid
+        measures = filter(lambda x: type(x) == Measure, self.query.measures)
+        axes = filter(lambda x: not isinstance(x, _AllLevel), self.query.axes)
         table_name = self.naming_convention.build_table_name(self.query.axes,
-                self.query.measures)
+                measures)
 
         # Work on the "raw" query to add the fact count column
         fact_count_column_name = (self.naming_convention.
@@ -398,11 +400,11 @@ class AggBuilder(object):
         fact_count_col = sql_query.c[fact_count_column_name]
 
         # Build aliases for axes and measures
-        for axis in self.query.axes:
+        for axis in axes:
             label = self.naming_convention.build_level_name(axis)
             axis_columns[axis] = (sql_query.c[axis._label_for_select]
                     .label(label))
-        for measure in self.query.measures:
+        for measure in measures:
             label = self.naming_convention.build_measure_name(measure)
             measure_columns.append(sql_query.c[measure.name].label(label))
 
@@ -435,7 +437,7 @@ class AggBuilder(object):
         # Append the aggregate definition to the cube
         agg = Aggregate(table, axes,
             {measure: table.c[measure.name]
-                for measure in self.query.measures},
+                for measure in measures},
             fact_count_column=table.c[fact_count_column_name])
 
         if with_trigger:
