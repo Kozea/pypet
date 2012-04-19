@@ -4,7 +4,8 @@ from sqlalchemy.sql import select, func, and_
 from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
     FromClause, ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
-from pypet import Level, ComputedLevel, Aggregate, _AllLevel, Measure
+from pypet import (Level, ComputedLevel, Aggregate, _AllLevel, Measure,
+    aggregates)
 from psycopg2.extensions import adapt as sqlescape
 import re
 
@@ -378,26 +379,27 @@ class AggBuilder(object):
         maintain the aggregate table.
 
         """
-        sql_query = self.query._as_sql()
         axis_columns = {}
         measure_columns = []
         cube = self.query.cuboid
-        measures = filter(lambda x: type(x) == Measure, self.query.measures)
         axes = filter(lambda x: not isinstance(x, _AllLevel), self.query.axes)
+        measures = filter(lambda x: type(x) == Measure, self.query.measures)
         table_name = self.naming_convention.build_table_name(self.query.axes,
                 measures)
-
+        query = self.query._generate()
+        if cube.fact_count_column is not None:
+            query.measures.append(Measure('__fact_count__',
+                    cube.fact_count_column, aggregates.sum))
+        else:
+            query.measures.append(Measure('__fact_count__',
+                    func.count(1), aggregates.sum))
+        sql_query = query._as_sql()
         # Work on the "raw" query to add the fact count column
         fact_count_column_name = (self.naming_convention.
                 build_fact_count_column_name())
-        if cube.fact_count_column is not None:
-            fact_count_col = (func.sum(cube.fact_count_column)
-                    .label(fact_count_column_name))
-        else:
-            fact_count_col = (func.count(1).label(fact_count_column_name()))
-        sql_query = sql_query.column(fact_count_col)
         sql_query = sql_query.alias()
-        fact_count_col = sql_query.c[fact_count_column_name]
+        fact_count_col = (sql_query.c['__fact_count__']
+                .label(fact_count_column_name))
 
         # Build aliases for axes and measures
         for axis in axes:

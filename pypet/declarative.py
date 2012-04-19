@@ -6,6 +6,7 @@ _LEVEL_COUNTER = 0
 
 UNKNOWN_VALUE = object()
 
+
 def table(name_or_table, metadata):
     if isinstance(name_or_table, basestring):
         table = metadata.tables.get(name_or_table, None)
