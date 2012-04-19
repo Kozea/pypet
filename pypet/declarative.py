@@ -55,6 +55,11 @@ class Declarative(object):
         instance.definition = cls
         return instance
 
+    @staticmethod
+    def _make_instance(cls, *args, **kwargs):
+        args = tuple(['_unbound_'] + list(args))
+        return getattr(pypet, cls.__name__)(*args, **kwargs)
+
 
 class MetaLevel(MetaDeclarative):
 
@@ -78,57 +83,44 @@ class Level(Declarative):
     """Declarative level with instance counter"""
     __metaclass__ = MetaLevel
 
-    @staticmethod
-    def _make_instance(cls, *args, **kwargs):
-        args = tuple(['_unbound_'] + list(args))
-        return pypet.Level(*args, **kwargs)
-
 
 class MetaMeasure(MetaDeclarative):
 
-    def __new__(cls, classname, bases, classdict):
-        measure_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Measure do nothing
-            return measure_class
-
+    @staticmethod
+    def _make_instance(mcs, class_, classdict):
         metadata = pypet.MetaData()
-        for key in dir(measure_class):
+        for key in dir(class_):
             if key not in ('expression', 'agg'
             ) and not key.startswith('_'):
-                metadata[key] = getattr(measure_class, key)
+                metadata[key] = getattr(class_, key)
 
-        measure = pypet.Measure(
+        return pypet.Measure(
             '_unbound_',
             classdict.get('expression', UNKNOWN_VALUE),
             classdict.get('agg', None),
             metadata=metadata)
-        measure.definition = measure_class
-        return measure
 
 
 class Measure(Declarative):
     """Declarative measure with instance counter"""
     __metaclass__ = MetaMeasure
 
-    def __new__(cls, *args, **kwargs):
+    @staticmethod
+    def _make_instance(cls, *args, **kwargs):
         args = ['_unbound_'] + list(args)
         if len(args) == 1:
             args = args + [UNKNOWN_VALUE]
-        measure = pypet.Measure(*args, **kwargs)
-        measure.definition = cls
-        return measure
+        return pypet.Measure(*args, **kwargs)
 
 
 class MetaHierarchy(MetaDeclarative):
-    def __new__(cls, classname, bases, classdict):
-        hierarchy_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Hierarchy do nothing
-            return hierarchy_class
 
+    @staticmethod
+    def _make_instance(mcs, class_, classdict):
         levels = []
         metadata = pypet.MetaData()
-        for key in dir(hierarchy_class):
-            value = getattr(hierarchy_class, key)
+        for key in dir(class_):
+            value = getattr(class_, key)
             if isinstance(value, pypet.Level):
                 value.name = key
                 levels.append(value)
@@ -137,7 +129,6 @@ class MetaHierarchy(MetaDeclarative):
 
         levels = sorted(levels, key=lambda x: x._count)
         hierarchy = pypet.Hierarchy('_unbound_', levels, metadata=metadata)
-        hierarchy.definition = hierarchy_class
         for level in levels:
             if not hasattr(hierarchy, level.name):
                 setattr(hierarchy, level.name, level)
@@ -150,16 +141,14 @@ class Hierarchy(Declarative):
 
 
 class MetaDimension(MetaDeclarative):
-    def __new__(cls, classname, bases, classdict):
-        dimension_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Dimension do nothing
-            return dimension_class
 
+    @staticmethod
+    def _make_instance(mcs, class_, classdict):
         hierarchies = []
         default_levels = {}
         metadata = pypet.MetaData()
-        for key in dir(dimension_class):
-            value = getattr(dimension_class, key)
+        for key in dir(class_):
+            value = getattr(class_, key)
             if isinstance(value, pypet.Hierarchy):
                 value.name = key
                 hierarchies.append(value)
@@ -180,7 +169,6 @@ class MetaDimension(MetaDeclarative):
 
         dimension = pypet.Dimension(
             '_unbound_', hierarchies, metadata=metadata)
-        dimension.definition = type.__new__(cls, classname, bases, classdict)
         for hierarchy in hierarchies:
             if not hasattr(dimension, hierarchy.name):
                 setattr(dimension, hierarchy.name, hierarchy)
@@ -193,10 +181,9 @@ class Dimension(Declarative):
 
 
 class MetaCube(MetaDeclarative):
-    def __new__(cls, classname, bases, classdict):
-        cube_class = type.__new__(cls, classname, bases, classdict)
-        if bases == (Declarative,):  # If Cube do nothing
-            return cube_class
+
+    @staticmethod
+    def _make_instance(mcs, class_, classdict):
         metadata = classdict.get('__metadata__', None)
         if not metadata:
             connection = classdict.get('__connection__', None)
@@ -214,8 +201,8 @@ class MetaCube(MetaDeclarative):
 
         dimensions = []
         measures = []
-        for key in dir(cube_class):
-            value = getattr(cube_class, key)
+        for key in dir(class_):
+            value = getattr(class_, key)
             if isinstance(value, pypet.Dimension):
                 value.name = key
                 dimensions.append(value)
@@ -233,7 +220,6 @@ class MetaCube(MetaDeclarative):
             aggregates=classdict.get('__aggregates__', None),
             fact_count_column=column(
                 classdict.get('__fact_count_column__', None), fact_table))
-        cube.definition = cube_class
 
         for thing in dimensions + measures:
             if not hasattr(cube, thing.name):
