@@ -332,25 +332,30 @@ class AggBuilder(object):
             pk_values.append('"%s" = %s."%s"' % (name, variable_name, name))
         insert_keys = []
         insert_values = []
+        if agg.selectable.schema is not None:
+            qualified_table_name = '"%s"."%s"' % (agg.selectable.schema,
+                    agg.selectable.name)
+        else:
+            qualified_table_name = '"%s"' % agg.selectable.name
         for col in agg.selectable.c:
             insert_keys.append('"%s"' % col.name)
             insert_values.append('%s."%s"' % (variable_name, col.name))
-        insert_stmt = 'INSERT INTO "%s" (%s) (SELECT %s) ' % (
-                agg.selectable.name,
+        insert_stmt = 'INSERT INTO %s (%s) (SELECT %s) ' % (
+                qualified_table_name,
                 ', '.join(insert_keys),
                 ', '.join(insert_values))
         fn_body = """DECLARE
-                        %s "%s";
+                        %s %s;
                      BEGIN
                         %s;
-                        UPDATE "%s" set %s WHERE %s;
+                        UPDATE %s set %s WHERE %s;
                         IF NOT FOUND THEN
                             %s ;
                         END IF;
                         RETURN NEW;
                      END;
-        """ % (variable_name, agg.selectable.name, intostmt,
-                agg.selectable.name,
+        """ % (variable_name, qualified_table_name, intostmt,
+                qualified_table_name,
                 ', '.join(values),
                 ' AND '.join(pk_values),
                 insert_stmt
@@ -358,7 +363,7 @@ class AggBuilder(object):
         function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
         conn.execute(function_declaration)
 
-        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON "%s"
+        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON %s
             FOR EACH ROW EXECUTE PROCEDURE "%s"()""" % (
                 nc.build_trigger_name(agg.selectable.name),
                 cube.table.name,
@@ -420,7 +425,11 @@ class AggBuilder(object):
         # Add it to the metadata via reflection
         cube.alchemy_md.reflect(bind=conn, schema=schema,
                 only=[table_name])
-        table = cube.alchemy_md.tables[table_name]
+        if schema:
+            metadata_table_key = '%s.%s' % (schema, table_name)
+        else:
+            metadata_table_key = table_name
+        table = cube.alchemy_md.tables[metadata_table_key]
 
         # Add PK and FK constraints
         pk = PrimaryKeyConstraint(*[table.c[col.key]

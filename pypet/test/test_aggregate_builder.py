@@ -60,13 +60,13 @@ class TestAggregateBuilder(BaseTestCase):
 class TestTriggers(BaseTestCase):
     fn_name = "trigger_function_agg_time_month_store_region_product_All"
 
-    def test_triggers(self):
+    def test_triggers(self, schema=None):
         c = self.cube
         query = c.query.axis(c.d['time'].l['month'],
                 c.d['store'].l['region'],
                 c.d['product'].l['All'])
         builder = AggBuilder(query)
-        builder.build(with_trigger=True)
+        builder.build(with_trigger=True, schema=schema)
         old_total_qty = c.query.axis().execute()["Quantity"]
         # Test with a value already in the agg table
         c.table.insert({
@@ -103,7 +103,15 @@ class TestTriggers(BaseTestCase):
         assert len(res) == 1
         assert res.by_label()['2020'].Quantity == 200
 
+    def test_in_schema(self):
+        self.test_triggers(schema='aggregates')
+
+    def setUp(self):
+        super(TestTriggers, self).setUp()
+        self.cube.table.bind.execute('CREATE SCHEMA aggregates')
+
     def tearDown(self):
         self.cube.table.bind.execute('DROP FUNCTION "%s"() CASCADE;'
                 % self.fn_name)
+        self.cube.table.bind.execute('DROP SCHEMA aggregates CASCADE');
         super(TestTriggers, self).tearDown()
