@@ -27,8 +27,6 @@ class identity_agg(Aggregator):
     def accumulator(self, column_name, new_row, agg_row):
         raise NotImplemented("YOU SHOULD NOT USE IDENTITY AGG IN A TRIGGER")
 
-identity_agg = identity_agg()
-
 
 class avg(Aggregator):
 
@@ -48,9 +46,6 @@ class avg(Aggregator):
                     (func.coalesce(agg_row.count, 0) + new_row.count))
 
 
-avg = avg()
-
-
 class sum(Aggregator):
 
     def __call__(self, column_clause, cuboid):
@@ -60,4 +55,17 @@ class sum(Aggregator):
         return (new_row.c[column_name] +
                 func.coalesce(agg_row.c[column_name], 0))
 
+
+class count(sum):
+
+    def __call__(self, column_clause, cuboid):
+        if cuboid.fact_count_column is not None:
+            return func.sum(cuboid.fact_count_column)
+        else:
+            return func.count(1)
+
+
+identity_agg = identity_agg()
 sum = sum()
+avg = avg()
+count = count()

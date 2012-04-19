@@ -156,6 +156,22 @@ class Measure(CubeObject):
         self.expression = expression
 
 
+class CountMeasure(Measure):
+
+    def __init__(self, name):
+        expr = func.count(1)
+        super(CountMeasure, self).__init__(name, expr,
+                agg=aggregates.count)
+
+    def _adapt(self, aggregate):
+        return self
+
+    def _score(self, agg):
+        if agg.fact_count_column is not None:
+            return (1 * 0.8 ** (len(agg.levels))), []
+        else:
+            return -1, []
+
 class RelativeMeasure(Measure):
 
     _select_class = OverSelect
@@ -792,12 +808,16 @@ class Query(_Generative):
         newself.measures = list(self.measures)
         return newself
 
-    def _as_sql(self):
+    def find_best_agg(self):
         agg_scores = ((agg, agg.score(self.parts))
                 for agg in self.cuboid.aggregates)
         best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
                 if scorex >= scorey
                 else (y, scorey), agg_scores, (self.cuboid, 0))
+        return best_agg
+
+    def _as_sql(self):
+        best_agg = self.find_best_agg()
         query = self._adapt(best_agg)
         things = query.parts
         selects = [sel  for t in things for sel in t._as_selects(best_agg)]

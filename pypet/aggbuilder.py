@@ -5,7 +5,7 @@ from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
     FromClause, ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
 from pypet import (Level, ComputedLevel, Aggregate, _AllLevel, Measure,
-    aggregates)
+    CountMeasure, aggregates)
 from psycopg2.extensions import adapt as sqlescape
 import re
 
@@ -399,13 +399,7 @@ class AggBuilder(object):
         query = self.query._generate()
         fact_count_column_name = (self.naming_convention.
                 build_fact_count_column_name())
-
-        if cube.fact_count_column is not None:
-            query.measures.append(Measure(fact_count_column_name,
-                    cube.fact_count_column, aggregates.sum))
-        else:
-            query.measures.append(Measure(fact_count_column_name,
-                    func.count(1), aggregates.sum))
+        query.measures.append(CountMeasure(fact_count_column_name))
         sql_query = query._as_sql()
         # Work on the "raw" query to add the fact count column
         sql_query = sql_query.alias()
@@ -436,10 +430,11 @@ class AggBuilder(object):
             metadata_table_key = table_name
         table = cube.alchemy_md.tables[metadata_table_key]
 
+        if axis_columns:
         # Add PK and FK constraints
-        pk = PrimaryKeyConstraint(*[table.c[col.key]
-            for axis, col in axis_columns.items()])
-        conn.execute(AddConstraint(pk))
+            pk = PrimaryKeyConstraint(*[table.c[col.key]
+                for axis, col in axis_columns.items()])
+            conn.execute(AddConstraint(pk))
         for axis, column in axis_columns.items():
             if isinstance(axis, (ComputedLevel, _AllLevel)):
                 # DO NOT add foreign key for computed and all levels!
