@@ -600,6 +600,11 @@ class Level(CutPoint):
         return [Member(self, value.id, value.label)
                 for value in self.members_query.distinct().execute()]
 
+    def __eq__(self, other):
+        return (isinstance(other, Level) and
+                other.dimension == self.dimension and
+                self.column is other.column)
+
 
 class ComputedLevel(Level):
 
@@ -643,6 +648,7 @@ class _AllLevel(Level):
                 types.Unicode)
         self.parent_level = None
         self.metadata = metadata or MetaData()
+        self.column = None
 
     def _as_selects(self, cuboid=None):
         return [LabelSelect(self, name=self._label_for_select,
