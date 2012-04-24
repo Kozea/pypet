@@ -493,7 +493,7 @@ class Level(CutPoint):
     @property
     def dimension(self):
         """Returns this level dimension."""
-        return self.hierarchy.dimension
+        return self.hierarchy.dimension if self.hierarchy is not None else None
 
     def __getitem__(self, key):
         values = list(self.members_query.where(self._id_column == key)
@@ -603,7 +603,7 @@ class Level(CutPoint):
     def __eq__(self, other):
         return (isinstance(other, Level) and
                 other.dimension == self.dimension and
-                self.column is other.column)
+                self.name == other.name)
 
 
 class ComputedLevel(Level):

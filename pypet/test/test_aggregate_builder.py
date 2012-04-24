@@ -47,6 +47,7 @@ class TestAggregateBuilder(BaseTestCase):
                 self.cube.d['store'].l['country']])
         assert set(month.measures.keys()) == set(['Unit Price', 'Quantity'])
         assert set(year.measures.keys()) == set(['Unit Price', 'Quantity'])
+
         sql_query = str(query._as_sql())
         assert self.agg_by_month_table.name in sql_query
         assert c.table.name not in sql_query
@@ -80,6 +81,7 @@ class TestTriggers(BaseTestCase):
         result = c.query.axis().execute()
         c.aggregates = oldaggs
         newresult = c.query.axis().execute()
+
         assert 'facts_table' not in str(c.query._as_sql())
         assert newresult == result
         assert newresult["Quantity"] == old_total_qty + 200
@@ -105,13 +107,16 @@ class TestTriggers(BaseTestCase):
 
     def test_in_schema(self):
         self.test_triggers(schema='aggregates')
+        self.schema = 'aggregates'
 
     def setUp(self):
+        self.schema = None
         super(TestTriggers, self).setUp()
         self.cube.table.bind.execute('CREATE SCHEMA aggregates')
 
     def tearDown(self):
-        self.cube.table.bind.execute('DROP FUNCTION "%s"() CASCADE;'
-                % self.fn_name)
+        if not self.schema:
+            self.cube.table.bind.execute('DROP FUNCTION "%s"() CASCADE;'
+                    % self.fn_name)
         self.cube.table.bind.execute('DROP SCHEMA aggregates CASCADE');
         super(TestTriggers, self).tearDown()

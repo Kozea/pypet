@@ -96,18 +96,22 @@ def visit_create_table_as(element, compiler, **kw):
 class CreateFunction(Executable, ClauseElement):
 
     def __init__(self, function_name, args, return_type, body,
-            language='plpgsql'):
+            language='plpgsql', schema=None):
         self.function_name = function_name
         self.args = args
         self.return_type = return_type
         self.language = language
         self.body = body
+        self.schema = schema
 
 
 @compiles(CreateFunction)
 def visit_create_function(element, compiler, **kw):
     preparer = compiler.dialect.identifier_preparer
     fn_name = preparer.quote_identifier(element.function_name)
+    if element.schema is not None:
+        fn_name = '%s.%s' % (preparer.quote_identifier(element.schema),
+                fn_name)
     params = []
     for name, type in element.args.items():
         if not isinstance(type, basestring):
@@ -360,16 +364,21 @@ class AggBuilder(object):
                 ' AND '.join(pk_values),
                 insert_stmt
                 )
-        function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body)
+        function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body,
+                schema=agg.selectable.schema)
         conn.execute(function_declaration)
         if cube.table.schema is not None:
             base_table_qualified_name = '"%s"."%s"' % (cube.table.schema,
                     cube.table.name)
         else:
             base_table_qualified_name = '"%s"' % cube.table.name
-
-        trigger_declaration = ("""CREATE TRIGGER "%s" BEFORE INSERT ON %s
-            FOR EACH ROW EXECUTE PROCEDURE "%s"()""" % (
+        trigger_name = '"%s"' % nc.build_trigger_name(agg.selectable.name)
+        fn_name = '"%s"' % fn_name
+        if agg.selectable.schema is not None:
+            trigger_name = '"%s".%s' % (agg.selectable.schema, trigger_name)
+            fn_name = '"%s".%s' % (agg.selectable.schema, fn_name)
+        trigger_declaration = ("""CREATE TRIGGER %s BEFORE INSERT ON %s
+            FOR EACH ROW EXECUTE PROCEDURE %s()""" % (
                 nc.build_trigger_name(agg.selectable.name),
                 base_table_qualified_name,
                 fn_name))
