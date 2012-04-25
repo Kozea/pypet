@@ -39,9 +39,11 @@ def operator(fun):
 
 
 def is_agg(column):
-    if all(hasattr(col, '_is_agg') for col in column.base_columns):
-        column._is_agg = True
-    return hasattr(column, '_is_agg')
+    if hasattr(column, '_is_agg'):
+        return column._is_agg
+    if all(getattr(col, '_is_agg', False) for col in column.base_columns):
+        return True
+    return False
 
 
 class CubeObject(_Generative):
@@ -86,7 +88,7 @@ class Measure(CubeObject):
             col._is_agg = True
             return AggregateSelect(self,
                     name=self.name,
-                    column_clause=col,
+                    column_clause=col.label(self.name),
                     dependencies=[base])
         else:
             return base
@@ -149,7 +151,7 @@ class Measure(CubeObject):
         self.agg = agg_fun
 
     def percent_over(self, level):
-        return (self / self.over(level) * 100)
+        return (self / self.over(level).aggregate_with(self.agg) * 100)
 
     @_generative
     def replace_expr(self, expression):
@@ -167,10 +169,8 @@ class CountMeasure(Measure):
         return self
 
     def _score(self, agg):
-        if agg.fact_count_column is not None:
-            return (1 * 0.8 ** (len(agg.levels))), []
-        else:
-            return -1, []
+        return (1 * 0.8 ** (len(agg.levels))), []
+
 
 class RelativeMeasure(Measure):
 
@@ -215,7 +215,6 @@ class RelativeMeasure(Measure):
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
-            cc[self.name]._is_agg = self.inner_agg
             return Measure(self.name, cc[self.name], agg=self.agg)
         over_level = order_level = None
         if self.over_level is not None:
@@ -289,11 +288,13 @@ class ConstantMeasure(Measure):
 
 class ComputedMeasure(Measure):
 
-    def __init__(self, name, operator, operands, agg=aggregates.identity_agg):
+    def __init__(self, name, operator, operands, agg=aggregates.identity_agg,
+            metadata=None):
         self.name = name
         self.operator = operator
         self.operands = operands
         self.agg = agg
+        self.metadata = metadata or MetaData()
 
     def _adapt(self, aggregate):
         return ComputedMeasure(self.name, self.operator,
@@ -319,7 +320,7 @@ class ComputedMeasure(Measure):
             self.operands], [])
         self_expr = (self.operator(*[(sub.column_clause)
             for sub in sub_selects]).label(self.name))
-        if all(hasattr(sub.column_clause, '_is_agg') for sub in sub_selects):
+        if all(getattr(sub.column_clause, '_is_agg', False) for sub in sub_selects):
             self_expr._is_agg = self.agg
         return [self.select_instance(cuboid, column_clause=self_expr,
                 dependencies=sub_selects,
@@ -514,7 +515,11 @@ class Level(CutPoint):
                 while(base_level is not None):
                     if base_level == self:
                         return score, [dim]
-                    base_level = base_level.parent_level
+                    idx = self.hierarchy.levels.values().index(base_level)
+                    if idx >= 1:
+                        base_level = self.hierarchy.levels.values()[idx - 1]
+                    else:
+                        base_level = None
                     score *= 0.5
         return -1, [dim]
 
@@ -833,7 +838,8 @@ class Query(_Generative):
 
     @property
     def parts(self):
-        return self.axes + self.measures + self.filters + self.orders
+        return (self.axes + self.measures + self.filters + self.orders +
+                [CountMeasure('FACT_COUNT')])
 
     @_generative
     def _adapt(self, agg):
@@ -902,7 +908,7 @@ class Query(_Generative):
         return ResultProxy(self, self._as_sql().execute())
 
 
-class Aggregate(object):
+class Aggregate(_Generative):
 
     def __init__(self, selectable, levels, measures, fact_count_column):
         self.selectable = selectable
@@ -922,7 +928,7 @@ class Aggregate(object):
         return sum(scores) + 0.3 * (dims - self_dims)
 
 
-class Cube(object):
+class Cube(_Generative):
 
     def __init__(self, metadata, fact_table, dimensions, measures,
             aggregates=None, fact_count_column=None):

@@ -1,4 +1,6 @@
 import pypet
+
+from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.schema import MetaData
 
@@ -70,12 +72,20 @@ class MetaLevel(MetaDeclarative):
             if key not in ('column', 'label_column', 'label_expression'
             ) and not key.startswith('_'):
                 metadata[key] = getattr(class_, key)
-
+        label_expression = classdict.get('label_expression', None)
+        if label_expression is not None:
+            # Wraps the expression to provide dummy self.
+            def make_label_expression(label_expression):
+                @wraps(label_expression)
+                def curried_label_expression(value):
+                    return label_expression(None, value)
+                return curried_label_expression
+            label_expression = make_label_expression(label_expression)
         return pypet.Level(
             '_unbound_',
             classdict.get('column', None),
             classdict.get('label_column', None),
-            classdict.get('label_expression', None),
+            label_expression,
             metadata=metadata)
 
 

@@ -226,7 +226,7 @@ def table_to_aggregate(cube, table, naming_convention=NamingConvention):
             as_level = naming_convention.find_column_as_level(cube, col)
             if as_level:
                 levels[as_level] = col
-        if measures and levels:
+        if measures and levels and fact_count_column is not None:
             return Aggregate(table, levels, measures, fact_count_column)
 
 

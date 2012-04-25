@@ -212,7 +212,7 @@ class TestCube(BaseTestCase):
         assert isinstance(TestCube.product.default, pypet.Hierarchy)
         assert isinstance(TestCube.product.default.category, pypet.Level)
         assert TestCube.product.default.category.name == 'category'
-        assert TestCube.product.default.category.label_expression(None,
+        assert TestCube.product.default.category.label_expression(
             '42') == '42 %'
         assert TestCube.product.default.category.column == c(
             'product_category.product_category_id')

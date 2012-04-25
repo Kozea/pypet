@@ -143,6 +143,20 @@ class OverSelect(Select):
         if hasattr(self.column_clause, '_is_agg'):
             col._is_agg = self.column_clause._is_agg
         query = self._replace_column(query, col)
+        if kwargs['in_group']:
+            for attr in ('order_by', 'partition_by'):
+                value = getattr(self.column_clause, attr)
+                if value is not None:
+                    value._preserve_for_over = True
+                    query = query.group_by(value)
+            for clause in self.column_clause.func.base_columns:
+                if hasattr(clause, '_is_agg'):
+                    clauses = list(clause.clauses)
+                else:
+                    clauses = [clause]
+                for cl in clauses:
+                    cl._preserve_for_over = True
+                    query = query.group_by(cl)
         return query
 
 
@@ -170,7 +184,10 @@ class FilterSelect(Select):
 class OrderSelect(Select):
 
     def _append_column(self, query, **kwargs):
-        return query.order_by(self.column_clause)
+        query = query.order_by(self.column_clause)
+        if kwargs['in_group']:
+            query = query.group_by(self.column_clause)
+        return query
 
 
 class PostFilterSelect(Select):
@@ -243,10 +260,19 @@ def compile(selects, query, cuboid, level=0):
     for column in query._group_by_clause:
         if any(col.shares_lineage(column) for col in columns_to_keep):
             group_bys.append(column)
+        elif hasattr(column, '_preserve_for_over'):
+            group_bys.append(column)
     query = query.with_only_columns(columns_to_keep)
     query._group_by_clause = []
     query = query.group_by(*set(group_bys))
     if len(subqueries) > 1:
         query = query.alias().select()
+        if cuboid.fact_count_column is not None:
+            cuboid = cuboid._generate()
+            new_fc = None
+            for col in query.inner_columns:
+                if col.name == 'FACT_COUNT':
+                    new_fc = col
+            cuboid.fact_count_column = new_fc
         return compile(simples, query, cuboid, level=level + 1)
     return query
