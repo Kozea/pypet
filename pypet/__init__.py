@@ -515,9 +515,12 @@ class Level(CutPoint):
                 while(base_level is not None):
                     if base_level == self:
                         return score, [dim]
-                    idx = self.hierarchy.levels.values().index(base_level)
-                    if idx >= 1:
-                        base_level = self.hierarchy.levels.values()[idx - 1]
+                    if base_level in self.hierarchy.levels.values():
+                        idx = self.hierarchy.levels.values().index(base_level)
+                        if idx >= 1:
+                            base_level = self.hierarchy.levels.values()[idx - 1]
+                        else:
+                            base_level = None
                     else:
                         base_level = None
                     score *= 0.5
