@@ -82,7 +82,7 @@ class MetaLevel(MetaDeclarative):
                 return curried_label_expression
             label_expression = make_label_expression(label_expression)
         return pypet.Level(
-            '_unbound_',
+            class_.__name__,
             classdict.get('column', None),
             classdict.get('label_column', None),
             label_expression,
@@ -105,7 +105,7 @@ class MetaMeasure(MetaDeclarative):
                 metadata[key] = getattr(class_, key)
 
         return pypet.Measure(
-            '_unbound_',
+            class_.__name__,
             classdict.get('expression', UNKNOWN_VALUE),
             classdict.get('agg', None),
             metadata=metadata)
@@ -139,7 +139,7 @@ class MetaHierarchy(MetaDeclarative):
 
         levels = sorted(levels,
                         key=lambda x: getattr(x, '_count', float('inf')))
-        hierarchy = pypet.Hierarchy('_unbound_', levels, metadata=metadata)
+        hierarchy = pypet.Hierarchy(class_.__name__, levels, metadata=metadata)
         for level in levels:
             if not hasattr(hierarchy, level.name):
                 setattr(hierarchy, level.name, level)
@@ -182,7 +182,7 @@ class MetaDimension(MetaDeclarative):
         hierarchies = sorted(hierarchies,
                         key=lambda x: getattr(x, '_count', float('inf')))
         dimension = pypet.Dimension(
-            '_unbound_', hierarchies, metadata=metadata)
+            class_.__name__, hierarchies, metadata=metadata)
         for hierarchy in hierarchies:
             if not hasattr(dimension, hierarchy.name):
                 setattr(dimension, hierarchy.name, hierarchy)
