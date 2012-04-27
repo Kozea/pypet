@@ -174,6 +174,18 @@ class TestModel(BaseTestCase):
                     .filter(self.cube.d['time'].l['year']['2010-01-01']))
         result = query.execute().by_label()
         assert set(result.keys()) == set(['2010'])
+        query = (self.cube.query
+                    .axis(self.cube.d['store'].l['region'])
+                    .filter(self.cube.d['store'].l['country'][1],
+                        self.cube.d['store'].l['country'][2])
+                    .filter(self.cube.d['time'].l['year']['2010-01-01'],
+                        self.cube.d['time'].l['year']['2009-01-01']))
+        result = query.execute().by_label()
+        assert set(result.keys()) == set(['Europe'])
+        query2 = query2.filter(self.cube.d['time'].l['year']['2010-01-01'])
+        result = query2.execute().by_label()
+        assert result['Food Mart.de']['CA_percent_by_region'] == 51.2820512820513
+
 
     def test_top(self):
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
@@ -206,12 +218,10 @@ class TestModel(BaseTestCase):
 
     def test_query_equality(self):
         assert self.cube.query == self.cube.query
-        region = self.cube.d['store'].l['region']
+        region = self.cube.d['store'].l['region'][1]
         assert self.cube.query.filter(region) == self.cube.query.filter(region)
         assert (self.cube.query.measure(self.cube.measures['Price']) ==
                 self.cube.query.measure(self.cube.measures['Price']))
-        assert (self.cube.query.filter(region.member_by_label('Europe') ==
-                self.cube.query.filter(region.member_by_label('Europe'))))
 
     def test_members(self):
         regions = self.cube.d['store'].l['region'].members

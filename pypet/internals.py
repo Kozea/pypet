@@ -38,14 +38,14 @@ def join_table_with_query(query, table):
 class Select(_Generative):
 
     def __init__(self, comes_from, column_clause=None, name=None,
-            dependencies=None, joins=None, where_clauses=None,
+            dependencies=None, joins=None, where_clause=None,
             is_constant=False):
         self.column_clause = column_clause
         self.comes_from = comes_from
         self.name = name
         self.dependencies = dependencies or []
         self.joins = joins or []
-        self.where_clauses = where_clauses or []
+        self.where_clause = where_clause
         self.is_constant = is_constant
 
     def _trim_dependency(self, query):
@@ -95,8 +95,8 @@ class Select(_Generative):
         return query
 
     def _append_where(self, query, **kwargs):
-        if self.where_clauses:
-            return query.where(and_(*self.where_clauses))
+        if self.where_clause is not None:
+            return query.where(self.where_clause)
         return query
 
     def _append_to_query(self, query, **kwargs):
@@ -178,7 +178,17 @@ class LabelSelect(GroupingSelect):
 
 
 class FilterSelect(Select):
-    pass
+
+    def _trim_dependency(self, query):
+        super(FilterSelect, self)._trim_dependency(query)
+
+    def simplify(self, query, cuboid):
+        for _from in query._froms:
+            while(hasattr(_from, 'element')):
+                _from = _from.element
+            if getattr(_from, '_whereclause', None) is self.where_clause:
+                return []
+        return super(FilterSelect, self).simplify(query, cuboid)
 
 
 class OrderSelect(Select):
@@ -190,7 +200,7 @@ class OrderSelect(Select):
         return query
 
 
-class PostFilterSelect(Select):
+class PostFilterSelect(FilterSelect):
 
     def need_subquery(self):
         return any(isinstance(dep, (AggregateSelect, OverSelect))

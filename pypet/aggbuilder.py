@@ -271,7 +271,7 @@ class AggBuilder(object):
             if not isinstance(axis, Level):
                 raise ValueError('All axis MUST be levels,'
                     '%s are not supported' % axis.__class__.name)
-        if query.filters:
+        if query.filter_clause is not None:
             raise ValueError('An aggregate query MUST NOT contain any filter')
         if query.orders:
             raise ValueError('An aggregate query MUST NOT contain any order')

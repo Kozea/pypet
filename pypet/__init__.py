@@ -1,7 +1,7 @@
 from sqlalchemy.sql import (func, over, operators,
         select as sql_select,
-        ColumnCollection, cast,
-        case)
+        cast,
+        ColumnCollection)
 from sqlalchemy import types
 from sqlalchemy.sql.expression import (
         or_,
@@ -29,6 +29,16 @@ def wrap_const(const):
             const = Measure(str(const), const,
                     agg=aggregates.identity_agg)
     return const
+
+
+def wrap_filter(filter):
+    if isinstance(filter, Member):
+        return  Filter(operators.eq, filter.level,
+            filter.id)
+    elif not isinstance(filter, Filter):
+        raise ValueError("Expected Member or Filter, got %s" %
+                            filter)
+    return filter
 
 
 def operator(fun):
@@ -285,6 +295,11 @@ class ConstantMeasure(Measure):
     def replace_expr(self, expression):
         pass
 
+    def __eq__(self, other):
+        return (isinstance(other, ConstantMeasure) and
+                self.constant == other.constant and
+                self.agg == other.agg)
+
 
 class ComputedMeasure(Measure):
 
@@ -320,7 +335,8 @@ class ComputedMeasure(Measure):
             self.operands], [])
         self_expr = (self.operator(*[(sub.column_clause)
             for sub in sub_selects]).label(self.name))
-        if all(getattr(sub.column_clause, '_is_agg', False) for sub in sub_selects):
+        if all(getattr(sub.column_clause, '_is_agg', False)
+                for sub in sub_selects):
             self_expr._is_agg = self.agg
         return [self.select_instance(cuboid, column_clause=self_expr,
                 dependencies=sub_selects,
@@ -357,9 +373,30 @@ class Filter(CubeObject):
         sub_operands = [sel for clause in self.operands
                 for sel in clause._as_selects(cuboid)
                 if not isinstance(sel, LabelSelect)]
-        return [self._select_class(self, where_clauses=[self.operator(
-            *[sub.column_clause for sub in sub_operands])],
+        return [self._select_class(self, where_clause=self.operator(
+            *[sub.column_clause for sub in sub_operands]),
             dependencies=sub_operands)]
+
+    def __eq__(self, other):
+        return (isinstance(other, Filter) and self.operator == other.operator
+            and self.operands == other.operands)
+
+
+class AndFilter(Filter):
+
+    def __init__(self, *operands):
+        super(AndFilter, self).__init__(and_, *operands)
+
+    def _as_selects(self, cuboid):
+        sub_operands = [sel for clause in self.operands
+                for sel in clause._as_selects(cuboid)
+                if not isinstance(sel, LabelSelect)]
+        deps = [sub for sub in sub_operands if not isinstance(sub,
+            FilterSelect)]
+        return [self._select_class(self, where_clause=and_(
+            *[sub.where_clause
+                for sub in sub_operands if sub.where_clause is not None]),
+            dependencies=deps)]
 
 
 class OrFilter(Filter):
@@ -371,17 +408,16 @@ class OrFilter(Filter):
         return self.__class__(*[clause._adapt(aggregate)
             for clause in self.operands])
 
-    def _simplify(self, query):
-        return self.__class__(*[clause._simplify(query)
-            for clause in self.operands])
-
     def _as_selects(self, cuboid):
         sub_operands = [sel for clause in self.operands
-                for sel in clause._as_selects(cuboid)]
-        return [self._select_class(self, where_clauses=[or_(
-            *[and_(*sub.where_clauses)
-                for sub in sub_operands if sub.where_clauses])],
-            dependencies=[])]
+                for sel in clause._as_selects(cuboid)
+                if not isinstance(sel, LabelSelect)]
+        deps = [sub for sub in sub_operands if not isinstance(sub,
+            FilterSelect)]
+        return [self._select_class(self, where_clause=or_(
+            *[sub.where_clause
+                for sub in sub_operands if sub.where_clause is not None]),
+            dependencies=deps)]
 
 
 class PostFilter(Filter):
@@ -392,11 +428,10 @@ class Member(CutPoint):
     """A member of a Level. Ex: The year 2010 is a member of the Year level of
     the time dimension."""
 
-    def __init__(self, level, id, label, filter=True, metadata=None):
+    def __init__(self, level, id, label, metadata=None):
         self.level = level
         self.id = id
         self.label = label
-        self.filter = filter
         self.label_expression = cast(_literal_as_binds(self.label),
                 types.Unicode)
         self.id_expr = _literal_as_binds(self.id)
@@ -409,23 +444,17 @@ class Member(CutPoint):
         cc = ColumnCollection(*query.inner_columns)
         if self._label_for_select in cc:
             return Member(self.level._simplify(query), self.id, self.label,
-                    filter=False)
+                    )
         return Member(self.level._simplify(query), self.id, self.label)
 
     def _as_selects(self, cuboid=None):
         subs = [sub for sub in self.level._as_selects(cuboid)
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
-        id_expr = subs[0]
         selects = [LabelSelect(self, column_clause=self.label_expression,
                 name='%s_label' % self._label_for_select, is_constant=True),
                    IdSelect(self, column_clause=self.id_expr,
                     name=self._label_for_select, is_constant=True)]
-        if self.filter:
-            selects.append(FilterSelect(self,
-                where_clauses=[id_expr.column_clause == self.id],
-                dependencies=[id_expr],
-                joins=id_expr.joins))
         return selects
 
     def __eq__(self, other):
@@ -515,10 +544,12 @@ class Level(CutPoint):
                 while(base_level is not None):
                     if base_level == self:
                         return score, [dim]
-                    if base_level in self.hierarchy.levels.values():
-                        idx = self.hierarchy.levels.values().index(base_level)
+
+                    same_hierarchy_levels = self.hierarchy.levels.values()
+                    if base_level in same_hierarchy_levels:
+                        idx = same_hierarchy_levels.index(base_level)
                         if idx >= 1:
-                            base_level = self.hierarchy.levels.values()[idx - 1]
+                            base_level = same_hierarchy_levels[idx - 1]
                         else:
                             base_level = None
                     else:
@@ -812,12 +843,11 @@ class Query(_Generative):
         self.cuboid = cuboid
         self.axes = axes
         self.measures = measures
-        self.filters = []
+        self.filter_clause = None
         self.orders = []
 
     def _generate(self):
         newself = super(Query, self)._generate()
-        newself.filters = list(self.filters)
         newself.orders = list(self.orders)
         newself.axes = list(self.axes)
         newself.measures = list(self.measures)
@@ -841,8 +871,11 @@ class Query(_Generative):
 
     @property
     def parts(self):
-        return (self.axes + self.measures + self.filters + self.orders +
-                [CountMeasure('FACT_COUNT')])
+        values = self.axes + self.measures + self.orders
+        if self.filter_clause is not None:
+            values.append(self.filter_clause)
+        values.append(CountMeasure('FACT_COUNT'))
+        return values
 
     @_generative
     def _adapt(self, agg):
@@ -850,7 +883,8 @@ class Query(_Generative):
             self.axes = [axis._adapt(agg) for axis in self.axes]
             self.measures = [measure._adapt(agg) for measure in
                     self.measures]
-            self.filters = [filter._adapt(agg) for filter in self.filters]
+            if self.filter_clause is not None:
+                self.filter_clause = self.filter_clause._adapt(agg)
             self.orders = [order._adapt(agg) for order in self.orders]
             self.cuboid = agg
 
@@ -859,17 +893,27 @@ class Query(_Generative):
             return (self.cuboid == other.cuboid and
                     self.axes == other.axes and
                     self.measures == other.measures and
-                    self.filters == other.filters)
+                    self.filter_clause == other.filter_clause)
         return False
 
     @_generative
     def filter(self, *members):
         if members:
+            members = [wrap_filter(member) for member in members]
             if len(members) > 1:
                 member = OrFilter(*members)
             else:
                 member = members[0]
-            self.filters.append(member)
+            if self.filter_clause is not None:
+                self.filter_clause = AndFilter(self.filter_clause, member)
+            else:
+                self.filter_clause = member
+
+    def append_filter(self, filter):
+        if self.filter_clause is not None:
+            self.filter_clause = AndFilter(self.filter_clause, filter)
+        else:
+            self.filter_clause = filter
 
     @_generative
     def order_by(self, measure, reverse=False):
@@ -903,9 +947,9 @@ class Query(_Generative):
                 order_level=expr,
                 over_level=partition_by,
                 desc=True)
-        self.filters.append(PostFilter(operators.le,
-            measure, ConstantMeasure(n)))
         self.orders.append(OrderClause(measure))
+        return self.append_filter(PostFilter(operators.le,
+            measure, ConstantMeasure(n)))
 
     def execute(self):
         return ResultProxy(self, self._as_sql().execute())
