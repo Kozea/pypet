@@ -216,6 +216,18 @@ class TestModel(BaseTestCase):
         self.compare_agg(query)
         assert res.keys() == [u'2010-11', u'2011-01', u'2009-08']
 
+    def test_multiple_over(self):
+        """Compute the 3 store/month couples that represent the highest
+        percentage of the total by year and region.
+        """
+        m = self.cube.m['Price'].percent_over(self.cube.d['store'].l['region'],
+                self.cube.d['time'].l['year'])
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'],
+            self.cube.d['time'].l['month'])
+                    .measure(m)
+                    .top(3, m))
+        res = query.execute()
+
     def test_query_equality(self):
         assert self.cube.query == self.cube.query
         region = self.cube.d['store'].l['region'][1]

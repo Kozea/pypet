@@ -3,6 +3,7 @@ from sqlalchemy.sql import (util as sql_util,
 from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
         and_, _Generative, _generative, func)
+from operator import and_ as builtin_and
 
 
 def join_table_with_query(query, table):
@@ -95,7 +96,7 @@ class Select(_Generative):
         return query
 
     def _append_where(self, query, **kwargs):
-        if self.where_clause is not None:
+        if self.where_clause is not None and not self.need_subquery():
             return query.where(self.where_clause)
         return query
 
@@ -147,8 +148,16 @@ class OverSelect(Select):
             for attr in ('order_by', 'partition_by'):
                 value = getattr(self.column_clause, attr)
                 if value is not None:
-                    value._preserve_for_over = True
-                    query = query.group_by(value)
+                    # Remove "DESC" OR "ASC" from the column clause.
+                    if hasattr(value, 'clauses'):
+                        clauses = value.clauses
+                    else:
+                        clauses = [value]
+                    for cl in clauses:
+                        while hasattr(cl, 'element'):
+                            cl = cl.element
+                        cl._preserve_for_over = True
+                        query = query.group_by(cl)
             for clause in self.column_clause.func.base_columns:
                 if hasattr(clause, '_is_agg'):
                     clauses = list(clause.clauses)
@@ -179,16 +188,50 @@ class LabelSelect(GroupingSelect):
 
 class FilterSelect(Select):
 
+    def __init__(self, *args, **kwargs):
+        super(FilterSelect, self).__init__(*args, **kwargs)
+        self.embedded = False
+
+    def _append_where(self, query, **kwargs):
+        if self.embedded:
+            return query
+        else:
+            return super(FilterSelect, self)._append_where(query, **kwargs)
+
     def _trim_dependency(self, query):
-        super(FilterSelect, self)._trim_dependency(query)
+        if not self.need_subquery():
+            self.dependencies = []
+        else:
+            super(FilterSelect, self)._trim_dependency(query)
+
+    def _contains_where(self, whereclause):
+        """Isolates components of a where clause.
+
+
+        Returns true if this filter whereclause is already contained in the
+        given whereclause
+        """
+        while hasattr(whereclause, 'element'):
+            whereclause = whereclause.element
+        if whereclause is self.where_clause:
+            return True
+        elif getattr(whereclause, 'operator', None) == builtin_and:
+            return any(self._contains_where(clause)
+                for clause in whereclause.get_children())
+        return False
 
     def simplify(self, query, cuboid):
         for _from in query._froms:
             while(hasattr(_from, 'element')):
                 _from = _from.element
-            if getattr(_from, '_whereclause', None) is self.where_clause:
+            if self._contains_where(getattr(_from, '_whereclause', None)):
                 return []
         return super(FilterSelect, self).simplify(query, cuboid)
+
+    def need_subquery(self):
+        return any(isinstance(dep, (AggregateSelect, OverSelect))
+                for dep in self.dependencies) or any(
+                        dep.need_subquery() for dep in self.dependencies)
 
 
 class OrderSelect(Select):
@@ -201,10 +244,7 @@ class OrderSelect(Select):
 
 
 class PostFilterSelect(FilterSelect):
-
-    def need_subquery(self):
-        return any(isinstance(dep, (AggregateSelect, OverSelect))
-                for dep in self.dependencies)
+    pass
 
 
 def by_class(selects):
