@@ -111,7 +111,7 @@ class Select(_Generative):
         fun(self)
 
     def need_subquery(self):
-        return any(isinstance(dep, AggregateSelect)
+        return any(isinstance(dep, (AggregateSelect, OverSelect))
                 for dep in self.dependencies)
 
 
@@ -156,7 +156,7 @@ class OverSelect(Select):
                     for cl in clauses:
                         while hasattr(cl, 'element'):
                             cl = cl.element
-                        cl._preserve_for_over = True
+                        cl._keep_group = True
                         query = query.group_by(cl)
             for clause in self.column_clause.func.base_columns:
                 if hasattr(clause, '_is_agg'):
@@ -164,7 +164,7 @@ class OverSelect(Select):
                 else:
                     clauses = [clause]
                 for cl in clauses:
-                    cl._preserve_for_over = True
+                    cl._keep_group = True
                     query = query.group_by(cl)
         return query
 
@@ -239,6 +239,7 @@ class OrderSelect(Select):
     def _append_column(self, query, **kwargs):
         query = query.order_by(self.column_clause)
         if kwargs['in_group']:
+            self.column_clause._keep_group = True
             query = query.group_by(self.column_clause)
         return query
 
@@ -310,7 +311,7 @@ def compile(selects, query, cuboid, level=0):
     for column in query._group_by_clause:
         if any(col.shares_lineage(column) for col in columns_to_keep):
             group_bys.append(column)
-        elif hasattr(column, '_preserve_for_over'):
+        elif hasattr(column, '_keep_group'):
             group_bys.append(column)
     query = query.with_only_columns(columns_to_keep)
     query._group_by_clause = []
