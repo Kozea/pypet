@@ -838,7 +838,8 @@ class OrderClause(CubeObject):
         return OrderClause(self.measure._simplify(query), self.reverse)
 
     def _as_selects(self, cuboid):
-        sub_selects = self.measure._as_selects(cuboid)
+        sub_selects = [sel for sel in self.measure._as_selects(cuboid)
+                if not isinstance(sel, LabelSelect)]
         assert len(sub_selects) == 1
         col = sub_selects[0].column_clause
         if self.reverse:
