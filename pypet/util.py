@@ -1,5 +1,6 @@
-from pypet import ComputedLevel, Hierarchy, Dimension, Query
-from sqlalchemy.sql import func, extract
+from pypet import ComputedLevel, Hierarchy, Dimension, Query, Member
+from sqlalchemy.sql import func, extract, cast, select
+from sqlalchemy import types
 
 to_char = func.to_char
 
@@ -24,6 +25,14 @@ class TimeLevel(ComputedLevel):
         label_expression = FORMAT_FUNCTIONS.get(time_slice, partial_extract)
         super(TimeLevel, self).__init__(name, column,
                 function=partial_trunc, label_expression=label_expression)
+
+    def __getitem__(self, key):
+        bind = self.column.table.bind
+        values = list(bind.execute(select([
+                self.function(cast(key, types.Date)).label('id'),
+                self.label_expression(cast(key, types.Date)).label('label')])
+                ))[0]
+        return Member(self, values.id, values.label)
 
 
 class TimeDimension(Dimension):
