@@ -669,6 +669,9 @@ class ComputedLevel(Level):
         self.child_level = level
         self.column = level.column
 
+    def __getitem__(self, key):
+        return super(ComputedLevel, self).__getitem__(self.function(key))
+
     @property
     def _id_column(self):
         return self.function(self.column).label(self.name)
