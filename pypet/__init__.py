@@ -8,7 +8,7 @@ from sqlalchemy.sql.expression import (
         and_,
         ColumnClause,
         _Generative, _generative, _literal_as_binds)
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from itertools import groupby
 from functools import wraps
 
@@ -774,9 +774,26 @@ class ResultProxy(OrderedDict):
     def __init__(self, query, result, label='All'):
         self.dims = query.axes
         self.label = label
-        self.scalar_value = None
         self.query = query
         self.orders = query.orders
+        this = self
+        class default_scalar_value(defaultdict):
+
+            @property
+            def measure_dict(self):
+                return {m.name: m for m in query.measures}
+
+            def keys(self):
+                return [m.name for m in query.measures]
+
+            def __missing__(self, key):
+                if key not in self.keys():
+                    raise KeyError('Not a valid value!')
+                self[key] = self.measure_dict[key].agg.py_impl([
+                    child.scalar_value[key] for child in this.values()])
+                return self[key]
+
+        self.scalar_value = default_scalar_value()
         super(ResultProxy, self).__init__()
         self.update(self._dims_dict(result))
 
@@ -811,9 +828,10 @@ class ResultProxy(OrderedDict):
         return OrderedDict((value.label, value) for value in self.values())
 
     def __getitem__(self, key):
-        if self.scalar_value:
-            return getattr(self.scalar_value, key)
-        return super(ResultProxy, self).__getitem__(key)
+        try:
+            return super(ResultProxy, self).__getitem__(key)
+        except KeyError:
+            return self.scalar_value[key]
 
     def __getattr__(self, key):
         if self.scalar_value is not None:

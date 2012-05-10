@@ -1,6 +1,7 @@
 from sqlalchemy.sql import func, case, cast
 from sqlalchemy import types
 import abc
+import __builtin__
 
 
 class Aggregator(object):
@@ -24,6 +25,9 @@ class identity_agg(Aggregator):
     def __nonzero__(self):
         return False
 
+    def py_impl(self, collection):
+        return collection
+
     def accumulator(self, column_name, new_row, agg_row):
         raise NotImplemented("YOU SHOULD NOT USE IDENTITY AGG IN A TRIGGER")
 
@@ -39,6 +43,9 @@ class avg(Aggregator):
                                types.Numeric)))
         return func.avg(column_clause)
 
+    def py_impl(self, collection):
+        return __builtin__.sum(collection) / len(collection)
+
     def accumulator(self, column_name, new_row, agg_row):
         return (((func.coalesce(agg_row.c[column_name], 0) *
             func.coalesce(agg_row.count, 0)) +
@@ -50,6 +57,9 @@ class sum(Aggregator):
 
     def __call__(self, column_clause, cuboid):
         return func.sum(column_clause)
+
+    def py_impl(self, collection):
+        return __builtin__.sum(collection)
 
     def accumulator(self, column_name, new_row, agg_row):
         return (new_row.c[column_name] +
@@ -63,6 +73,9 @@ class count(sum):
             return func.sum(cuboid.fact_count_column)
         else:
             return func.count(1)
+
+    def py_impl(self, collection):
+        return len(collection)
 
 
 identity_agg = identity_agg()
