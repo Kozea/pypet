@@ -1005,9 +1005,15 @@ class Aggregate(_Generative):
         scores, dims = zip(*[thing._score(self) for thing in things])
         if any(score < 0 for score in scores):
             return -100
-        dims = len(set(d.name for dim in dims for d in dim))
-        self_dims = len(set(l.dimension.name for l in self.levels))
-        return sum(scores) + 0.3 * (dims - self_dims)
+        dims = set(d for dim in dims for d in dim)
+        self_dims = set(l.dimension for l in self.levels)
+        not_used_dims = self_dims - dims
+        # Take not-used levels in consideration too.
+        factor = 0
+        for level in self.levels:
+            if level.dimension in not_used_dims:
+                factor += level.hierarchy.levels.values().index(level)
+        return sum(scores) + 0.3 ** factor
 
 
 class Cube(_Generative):
