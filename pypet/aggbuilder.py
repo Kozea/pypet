@@ -4,7 +4,7 @@ from sqlalchemy.sql import select, func, and_
 from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
     FromClause, ColumnCollection)
 from sqlalchemy.ext.compiler import compiles
-from pypet import (Level, ComputedLevel, Aggregate, _AllLevel, Measure,
+from pypet import (Level, ComputedLevel, Aggregate, AllLevel, Measure,
     CountMeasure, aggregates)
 from psycopg2.extensions import adapt as sqlescape
 import re
@@ -401,7 +401,7 @@ class AggBuilder(object):
         axis_columns = {}
         measure_columns = []
         cube = self.query.cuboid
-        axes = filter(lambda x: not isinstance(x, _AllLevel), self.query.axes)
+        axes = filter(lambda x: not isinstance(x, AllLevel), self.query.axes)
         measures = filter(lambda x: type(x) == Measure, self.query.measures)
         table_name = self.naming_convention.build_table_name(self.query.axes,
                 measures)
@@ -445,7 +445,7 @@ class AggBuilder(object):
                 for axis, col in axis_columns.items()])
             conn.execute(AddConstraint(pk))
         for axis, column in axis_columns.items():
-            if isinstance(axis, (ComputedLevel, _AllLevel)):
+            if isinstance(axis, (ComputedLevel, AllLevel)):
                 # DO NOT add foreign key for computed and all levels!
                 continue
             fk = ForeignKeyConstraint(columns=[column.name],

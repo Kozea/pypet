@@ -690,7 +690,7 @@ class ComputedLevel(Level):
                 dependencies=[dep])]
 
 
-class _AllLevel(Level):
+class AllLevel(Level):
     """A dummy, top-level level."""
 
     def __init__(self, name='All', label='All', metadata=None):
@@ -713,7 +713,7 @@ class _AllLevel(Level):
         return self
 
     def _score(self, agg):
-        score, dims = super(_AllLevel, self)._score(agg)
+        score, dims = super(AllLevel, self)._score(agg)
         if score < 0:
             # The dimension itself is not in the table, therefore the rows
             # represent the total
@@ -727,7 +727,7 @@ class Hierarchy(object):
 
     def __init__(self, name, levels, metadata=None):
         self.name = name
-        self.levels = [_AllLevel()] + levels
+        self.levels = [AllLevel()] + levels
         self.default_level = self.levels[0]
         self.levels = OrderedDict((level.name, level) for level in self.levels)
         self.metadata = metadata or MetaData()
