@@ -728,7 +728,7 @@ class Hierarchy(object):
     def __init__(self, name, levels, metadata=None):
         self.name = name
         self.levels = [_AllLevel()] + levels
-        self.default_member = self.levels[0]
+        self.default_level = self.levels[0]
         self.levels = OrderedDict((level.name, level) for level in self.levels)
         self.metadata = metadata or MetaData()
 
@@ -748,7 +748,7 @@ class Dimension(object):
 
     def __init__(self, name, hierarchies, metadata=None):
         self.default_hierarchy = hierarchies[0]
-        self.default_member = self.default_hierarchy.default_member
+        self.default_level = self.default_hierarchy.default_level
         self.name = name
         for hierarchy in hierarchies:
             hierarchy.bind(self)
@@ -1030,7 +1030,7 @@ class Cube(_Generative):
 
     @property
     def query(self):
-        return Query(self, [dim.default_member for dim in
+        return Query(self, [dim.default_level for dim in
             self.dimensions.values()],
             self.measures.values())
 
