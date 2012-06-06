@@ -74,7 +74,7 @@ class Measure(CubeObject):
     def __init__(self, name, expression, agg=aggregates.sum, metadata=None):
         self.expression = expression
         self.agg = agg
-        self.name = name
+        self.name = name or self.expression.label
         self.metadata = metadata or MetaData()
 
     @property
@@ -153,9 +153,8 @@ class Measure(CubeObject):
                 ','.join([level.name for level in levels]))
         return RelativeMeasure(name, self, levels)
 
-    @_generative
-    def label(self, name):
-        self.name = name
+    def label(self, name=None):
+        return MeasureLabel(self, name)
 
     @_generative
     def aggregate_with(self, agg_fun):
@@ -339,6 +338,19 @@ class ComputedMeasure(Measure):
         return [self.select_instance(cuboid, column_clause=self_expr,
                 dependencies=sub_selects,
                 name=self.name)]
+
+
+class MeasureLabel(ComputedMeasure):
+
+    def __init__(self, measure, name=None):
+        name = name or 'anon_%d' % id(measure)
+        super(MeasureLabel, self).__init__(name, lambda x: x, (measure,),
+                measure.agg)
+
+    def label(self, name=None):
+        if name:
+            return super(MeasureLabel, self).label(name)
+        return self
 
 
 class CutPoint(CubeObject):
@@ -840,7 +852,7 @@ class ResultProxy(OrderedDict):
 
     def __eq__(self, other):
         return (super(ResultProxy, self).__eq__(other) and
-                self.scalar_value == other.scalar_value)
+                dict(self.scalar_value) == dict(other.scalar_value))
 
 
 class OrderClause(CubeObject):

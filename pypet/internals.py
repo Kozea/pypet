@@ -52,6 +52,7 @@ class Select(_Generative):
     def _trim_dependency(self, query):
         _froms_col = [col for _from in query._froms for col in _from.c]
         for dep in self.dependencies:
+            dep._trim_dependency(query)
             if isinstance(dep, AggregateSelect):
                 continue
             if any(col.key == dep.name for col in
@@ -119,6 +120,7 @@ class ValueSelect(Select):
 
     def need_subquery(self):
         return any(isinstance(dep, (AggregateSelect, OverSelect))
+                or dep.need_subquery()
                 for dep in self.dependencies)
 
     def _append_column(self, query, **kwargs):

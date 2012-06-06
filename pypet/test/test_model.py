@@ -87,6 +87,18 @@ class TestModel(BaseTestCase):
                     fact_count_column=self.agg_by_month_table.c['Quantity'])
         self.cube.aggregates.append(aggregate)
 
+    def _find_from(self, _froms, value):
+        for _from in _froms:
+            while hasattr(_from, 'element'):
+                _from = _from.element
+            if value == _from:
+                return True
+            if hasattr(_from, '_froms'):
+                found = self._find_from(_from._froms, value)
+                if found:
+                    return True
+        return False
+
     def compare_agg(self, query, used_agg=None):
         """Execute a query, with and without aggregation, and compare the
         results."""
@@ -96,7 +108,7 @@ class TestModel(BaseTestCase):
         self._append_aggregate_by_month()
         aggres = query.execute()
         if used_agg is not None:
-            assert used_agg in query._as_sql()._froms
+            assert self._find_from(query._as_sql()._froms, used_agg)
         assert res == aggres
         self.cube.aggregates = agg
 
@@ -125,7 +137,8 @@ class TestModel(BaseTestCase):
         self.cube.aggregates.append(agg_by_year_country)
         newres = query.execute()
         assert res == newres
-        assert self.agg_by_year_country_table in query._as_sql()._froms
+        assert self._find_from(query._as_sql()._froms,
+                self.agg_by_year_country_table)
         self.cube.aggregates = []
         query = self.cube.query.slice(self.cube.d['time'].l['year']
                 .member_by_label('2010'))
@@ -133,7 +146,8 @@ class TestModel(BaseTestCase):
         self.cube.aggregates.append(agg_by_year_country)
         newres = query.execute()
         assert res == newres
-        assert self.agg_by_year_country_table in query._as_sql()._froms
+        assert self._find_from(query._as_sql()._froms,
+                self.agg_by_year_country_table)
 
         self.cube.aggregates = []
         query = self.cube.query.slice(self.cube.d['store'].l['region'])
@@ -141,7 +155,8 @@ class TestModel(BaseTestCase):
         self.cube.aggregates.append(agg_by_year_country)
         newres = query.execute()
         assert res == newres
-        assert self.agg_by_year_country_table in query._as_sql()._froms
+        assert self._find_from(query._as_sql()._froms,
+                self.agg_by_year_country_table)
 
         self.cube.aggregates = []
         query = self.cube.query.axis(self.cube.d['store'].l['region'],
@@ -150,7 +165,8 @@ class TestModel(BaseTestCase):
         self.cube.aggregates.append(agg_by_year_country)
         newres = query.execute()
         assert res == newres
-        assert self.agg_by_year_country_table in query._as_sql()._froms
+        assert self._find_from(query._as_sql()._froms,
+                self.agg_by_year_country_table)
 
     def test_filters(self):
         query1 = (self.cube.query
