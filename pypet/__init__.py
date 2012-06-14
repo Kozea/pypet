@@ -715,8 +715,10 @@ class AllLevel(Level):
         self.column = None
 
     def _as_selects(self, cuboid=None):
-        return [LabelSelect(self, name=self._label_for_select,
-            column_clause=self.label_expression, is_constant=True)]
+        return [LabelSelect(self, name=self._label_for_select + '_label',
+            column_clause=self.label_expression, is_constant=True),
+                IdSelect(self, name=self._label_for_select,
+                    column_clause=self.label_expression, is_constant=True)]
 
     def _simplify(self, query):
         return self
