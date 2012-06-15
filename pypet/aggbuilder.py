@@ -304,8 +304,6 @@ class AggBuilder(object):
                 func.coalesce(agg_row.c[agg.fact_count_column.name], 0)).label(
                         agg.fact_count_column.name)
 
-        # We're going to "LEFT OUTER JOIN" the new row to the matching
-        # aggregate row, building a filter clasue for this
         filter_clause = []
         for name, expr in agg.levels.items():
             primary_keys[expr.name] = new_row.c[expr.name]
@@ -477,7 +475,7 @@ class AggBuilder(object):
             self.build_trigger(conn, cube, query, agg, self.naming_convention)
         if with_indexes:
             for column in axis_columns.values():
-                Index('ix_%s' % column.key, table.c[column.key]).create(bind=conn)
+                Index('ix_%s_%s' % (table.name, column.key), table.c[column.key]).create(bind=conn)
         tr.commit()
 
         cube.aggregates.append(agg)
