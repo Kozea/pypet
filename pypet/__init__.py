@@ -899,16 +899,8 @@ class Query(_Generative):
         newself.measures = list(self.measures)
         return newself
 
-    def find_best_agg(self):
-        agg_scores = ((agg, agg.score(self.parts))
-                for agg in self.cuboid.aggregates)
-        best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
-                if scorex >= scorey
-                else (y, scorey), agg_scores, (self.cuboid, 0))
-        return best_agg
-
     def _as_sql(self):
-        best_agg = self.find_best_agg()
+        best_agg = self.cuboid._find_best_agg(self.parts)
         query = self._adapt(best_agg)
         things = query.parts
         selects = [sel  for t in things for sel in t._as_selects(best_agg)]
@@ -1059,3 +1051,17 @@ class Cube(_Generative):
     @property
     def m(self):
         return self.measures
+
+    def _find_best_agg(self, parts):
+        agg_scores = ((agg, agg.score(parts))
+                for agg in self.aggregates)
+        best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
+                if scorex >= scorey
+                else (y, scorey), agg_scores, (self, 0))
+        return best_agg
+
+    def best_agg_level(self, level):
+        """Returns the level, using the best aggregate available."""
+        return level._adapt(self._find_best_agg([level]))
+
+
