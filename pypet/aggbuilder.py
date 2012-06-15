@@ -316,7 +316,7 @@ class AggBuilder(object):
         values = sorted(transformations.values() + primary_keys.values(),
                 key=lambda x: agg_column_names.index(x.name))
 
-        from_obj = new_row.outerjoin(agg.selectable,
+        from_obj = new_row.join(agg.selectable,
             onclause=and_(*filter_clause))
         select_statement = (select(values, from_obj=from_obj)
                                 .correlate(new_query, agg.selectable))
@@ -329,6 +329,12 @@ class AggBuilder(object):
         for k, v in intostmt.params.items():
             params[k] = sqlescape(v)
         intostmt = intostmt.string % params
+        intostmt_when_null = SelectInto(new_query, variable_name).compile()
+        params = {}
+        for k, v in intostmt_when_null.params.items():
+            params[k] = sqlescape(v)
+        intostmt_when_null = intostmt_when_null.string % params
+
         values = []
         for name in transformations:
             values.append('"%s" = %s."%s"' % (name, variable_name, name))
@@ -353,6 +359,9 @@ class AggBuilder(object):
                         %s %s;
                      BEGIN
                         %s;
+                        IF (%s IS NULL) THEN
+                            %s;
+                        END IF;
                         UPDATE %s set %s WHERE %s;
                         IF NOT FOUND THEN
                             %s ;
@@ -360,6 +369,8 @@ class AggBuilder(object):
                         RETURN NEW;
                      END;
         """ % (variable_name, qualified_table_name, intostmt,
+                variable_name,
+                intostmt_when_null,
                 qualified_table_name,
                 ', '.join(values),
                 ' AND '.join(pk_values),

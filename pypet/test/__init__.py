@@ -12,7 +12,7 @@ import unittest
 class BaseTestCase(unittest.TestCase):
 
     def setUp(self):
-        engine = create_engine('postgresql://pypet@localhost/pypet')
+        engine = create_engine('postgresql://postgres@localhost/pypet')
         self.metadata = MetaData(bind=engine)
 
         self.store_table = Table('store', self.metadata,
