@@ -475,7 +475,7 @@ class AggBuilder(object):
             self.build_trigger(conn, cube, query, agg, self.naming_convention)
         if with_indexes:
             for column in axis_columns.values():
-                Index('ix_%s_%s' % (table.name, column.key), table.c[column.key]).create(bind=conn)
+                Index(('ix_%s_%s' % (table.name, column.key))[:63], table.c[column.key]).create(bind=conn)
         tr.commit()
 
         cube.aggregates.append(agg)
