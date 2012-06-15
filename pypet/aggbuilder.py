@@ -1,5 +1,5 @@
 from sqlalchemy.schema import (PrimaryKeyConstraint, ForeignKeyConstraint,
-    AddConstraint)
+    AddConstraint, Index)
 from sqlalchemy.sql import select, func, and_
 from sqlalchemy.sql.expression import (Executable, ClauseElement, Select,
     FromClause, ColumnCollection)
@@ -147,6 +147,7 @@ class NamingConvention(object):
     fact_count_column_name = 'fact_count'
     trigger_function_name = 'trigger_function_{tablename}'
     trigger_name = 'trigger_{tablename}'
+    idx_name = 'idx_{tablename}_{levelname}'
 
     @classmethod
     def build_level_name(cls, level):
@@ -384,7 +385,8 @@ class AggBuilder(object):
                 fn_name))
         conn.execute(trigger_declaration)
 
-    def build(self, schema=None, with_trigger=False):
+
+    def build(self, schema=None, with_trigger=False, with_indexes=True):
         """Creates the actual aggregate table.
 
         It will create and populate the table with a name and column names
@@ -462,6 +464,9 @@ class AggBuilder(object):
 
         if with_trigger:
             self.build_trigger(conn, cube, query, agg, self.naming_convention)
+        if with_indexes:
+            for column in axis_columns.values():
+                Index('ix_%s' % column.key, table.c[column.key]).create(bind=conn)
         tr.commit()
 
         cube.aggregates.append(agg)
