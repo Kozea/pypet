@@ -284,7 +284,7 @@ class AggBuilder(object):
     def build_trigger(self, conn, cube, sql_query, agg,
             nc=NamingConvention):
         # Adapt the query to the "new" table structure
-        new_query = adapt_query(sql_query, cube.table).alias()
+        new_query = adapt_query(sql_query, cube.selectable).alias()
 
         # Declare two new from_clauses, corresponding to the NEW row, and the
         # matching AGG row.
@@ -377,9 +377,9 @@ class AggBuilder(object):
         function_declaration = CreateFunction(fn_name, {}, 'TRIGGER', fn_body,
                 schema=agg.selectable.schema)
         conn.execute(function_declaration)
-        if cube.table.schema is not None:
-            base_table_qualified_name = '"%s"."%s"' % (cube.table.schema,
-                    cube.table.name)
+        if cube.selectable.schema is not None:
+            base_table_qualified_name = '"%s"."%s"' % (cube.selectable.schema,
+                    cube.selectable.name)
         else:
             base_table_qualified_name = '"%s"' % cube.table.name
         trigger_name = '"%s"' % nc.build_trigger_name(agg.selectable.name)
@@ -417,6 +417,7 @@ class AggBuilder(object):
         table_name = self.naming_convention.build_table_name(self.query.axes,
                 measures)
         query = self.query._generate()
+        base_agg = cube._find_best_agg(query.parts)
         fact_count_column_name = (self.naming_convention.
                 build_fact_count_column_name())
         query.measures.append(CountMeasure(fact_count_column_name))
@@ -435,11 +436,11 @@ class AggBuilder(object):
             measure_columns.append(sql_query.c[measure.name].label(label))
 
         # Create table
-        query = select(axis_columns.values() + measure_columns +
+        sql_query = select(axis_columns.values() + measure_columns +
                 [fact_count_col])
-        conn = query.bind.connect()
+        conn = sql_query.bind.connect()
         tr = conn.begin()
-        conn.execute(CreateTableAs(table_name, query, schema=schema))
+        conn.execute(CreateTableAs(table_name, sql_query, schema=schema))
 
         # Add it to the metadata via reflection
         cube.alchemy_md.reflect(bind=conn, schema=schema,
@@ -472,7 +473,7 @@ class AggBuilder(object):
             fact_count_column=table.c[fact_count_column_name])
 
         if with_trigger:
-            self.build_trigger(conn, cube, query, agg, self.naming_convention)
+            self.build_trigger(conn, base_agg, sql_query, agg, self.naming_convention)
         if with_indexes:
             for column in axis_columns.values():
                 Index(('ix_%s_%s' % (table.name, column.key))[:63], table.c[column.key]).create(bind=conn)
