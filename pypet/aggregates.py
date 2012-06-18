@@ -47,11 +47,11 @@ class avg(Aggregator):
         return __builtin__.sum(collection) / len(collection)
 
     def accumulator(self, column_name, new_row, agg_row):
-        return (((func.coalesce(agg_row.c[column_name], 0) *
-            func.coalesce(agg_row.count, 0)) +
-                 (new_row.c[column_name] * new_row.count)) /
-                    (func.coalesce(agg_row.count, 0) + new_row.count))
-
+        return case([(new_row.count + func.coalesce(agg_row.count, 0) == 0, 0)],
+                else_=(((func.coalesce(agg_row.c[column_name], 0) *
+                    func.coalesce(agg_row.count, 0)) +
+                     (new_row.c[column_name] * new_row.count)) /
+                        (func.coalesce(agg_row.count, 0) + new_row.count)))
 
 class sum(Aggregator):
 
