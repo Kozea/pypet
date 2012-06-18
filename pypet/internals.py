@@ -315,6 +315,10 @@ def compile(selects, query, cuboid, level=0):
             group_bys.append(column)
         elif hasattr(column, '_keep_group'):
             group_bys.append(column)
+    if len(subqueries) > 1:
+        for column in query._order_by_clause:
+            if column.key not in [c.key for c in columns_to_keep]:
+                columns_to_keep.append(column)
     query = query.with_only_columns(columns_to_keep)
     query._group_by_clause = []
     query = query.group_by(*set(group_bys))
