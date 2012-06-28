@@ -462,7 +462,8 @@ class AggBuilder(object):
                 continue
             fk = ForeignKeyConstraint(columns=[column.name],
                     refcolumns=[axis.column],
-                    table=table)
+                    table=table,
+                    deferrable=True)
             conn.execute(AddConstraint(fk))
         axes = {axis: table.c[column.name] for axis, column in
             axis_columns.items()}
