@@ -645,10 +645,12 @@ class Level(CutPoint):
             label_col = '%s_label' % self._label_for_select
             if label_col in cc:
                 column_expr = cc[label_col]
+                label_expr = lambda x: x
             else:
                 column_expr = dim_expr
-
-            return self.replace_expr(dim_expr, column_expr)
+                label_expr = self.label_expression
+            return (self.replace_expr(dim_expr, column_expr)
+                    .replace_label_expression(label_expr))
         return self
 
     @property
@@ -677,9 +679,20 @@ class ComputedLevel(Level):
         self.metadata = metadata or MetaData()
 
     @_generative
+    def replace_expr(self, expr, label_column=None):
+        self.column = expr
+        self.child_level = None
+        if label_column is not None:
+            self.label_column = label_column
+        else:
+            self.label_column = self.column
+
+
+    @_generative
     def replace_level(self, level):
         self.child_level = level
         self.column = level.column
+        self.label_column = self.column
 
     def __getitem__(self, key):
         return super(ComputedLevel, self).__getitem__(self.function(key))
@@ -687,10 +700,6 @@ class ComputedLevel(Level):
     @property
     def _id_column(self):
         return self.function(self.column).label(self.name)
-
-    @property
-    def _label_column(self):
-        return self.label_expression(self._id_column)
 
     def _as_selects(self, cuboid=None):
         col = self._id_column
