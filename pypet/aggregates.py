@@ -38,20 +38,27 @@ class avg(Aggregator):
         if cuboid.fact_count_column is not None:
             count = func.sum(cuboid.fact_count_column)
             return case([(count == 0, 0)], else_=(
-                    func.sum(column_clause * cuboid.fact_count_column) /
-                           cast(count,
-                               types.Numeric)))
+                func.sum(column_clause * cuboid.fact_count_column) /
+                cast(count,
+                     types.Numeric)))
         return func.avg(column_clause)
 
     def py_impl(self, collection):
         return __builtin__.sum(collection) / len(collection)
 
-    def accumulator(self, column_name, new_row, agg_row):
-        return case([(new_row.count + func.coalesce(agg_row.count, 0) == 0, 0)],
-                else_=(((func.coalesce(agg_row.c[column_name], 0) *
-                    func.coalesce(agg_row.count, 0)) +
-                     (new_row.c[column_name] * new_row.count)) /
-                        (func.coalesce(agg_row.count, 0) + new_row.count)))
+    def accumulator(self, column_name, new_row, agg_row, old_row=None):
+        new_count = new_row.count
+        new_total = new_row.c[column_name] * new_row.count
+        if old_row is not None:
+            new_count = new_count - old_row.count
+            new_total = (new_total -
+                        (old_row.c[column_name] * old_row.count))
+        agg_count = func.coalesce(agg_row.count, 0)
+        agg_value = func.coalesce(agg_row.c[column_name]) * agg_count
+        total_count = new_count + agg_count
+        return case([(total_count == 0, 0)],
+                    else_=(agg_value + new_total) / total_count)
+
 
 class sum(Aggregator):
 
@@ -61,8 +68,11 @@ class sum(Aggregator):
     def py_impl(self, collection):
         return __builtin__.sum(collection)
 
-    def accumulator(self, column_name, new_row, agg_row):
-        return (new_row.c[column_name] +
+    def accumulator(self, column_name, new_row, agg_row, old_row=None):
+        total_sum = new_row.c[column_name]
+        if old_row is None:
+            total_sum = total_sum - old_row.c[column_name]
+        return (total_sum +
                 func.coalesce(agg_row.c[column_name], 0))
 
 
