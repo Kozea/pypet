@@ -70,7 +70,7 @@ class sum(Aggregator):
 
     def accumulator(self, column_name, new_row, agg_row, old_row=None):
         total_sum = new_row.c[column_name]
-        if old_row is None:
+        if old_row is not None:
             total_sum = total_sum - old_row.c[column_name]
         return (total_sum +
                 func.coalesce(agg_row.c[column_name], 0))
