@@ -44,8 +44,10 @@ def visit_new_row_trigger_from_clause(element, compiler, **kw):
 
 class AccumulatorRow(FromClause):
 
+    selectable = None
+
     def __init__(self, selectable, agg):
-        self.selectable = selectable
+        self._select = selectable
         self.count = selectable.c[agg.fact_count_column.name]
         self.selectable = selectable
         self._columns = selectable.c
@@ -53,14 +55,14 @@ class AccumulatorRow(FromClause):
 
 @compiles(AccumulatorRow)
 def visit_accumulator_row(element, compiler, **kw):
-    return compiler.process(element.selectable, **kw)
+    return compiler.process(element._select, **kw)
 
 
 class SelectInto(Select):
 
     def __init__(self, selectable, into):
         super(SelectInto, self).__init__(selectable.c)
-        self.selectable = selectable
+        self._select = selectable
         self.into = into
 
 
@@ -68,7 +70,7 @@ class SelectInto(Select):
 def visit_select_into(element, compiler, **kw):
     return ("SELECT * INTO %s from (%s) t" % (
             element.into,
-            compiler.process(element.selectable, **kw)))
+            compiler.process(element._select, **kw)))
 
 
 class InsertFromSelect(Executable, ClauseElement):
