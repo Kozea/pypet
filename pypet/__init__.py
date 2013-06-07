@@ -474,9 +474,12 @@ class Member(CutPoint):
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
         selects = [LabelSelect(self, column_clause=self.label_expression,
-                name='%s_label' % self._label_for_select, is_constant=True),
+                               name='%s_label' % self._label_for_select,
+                               joins=[self.level.label_column.table],
+                               is_constant=True),
                    IdSelect(self, column_clause=self.id_expr,
-                    name=self._label_for_select, is_constant=True)]
+                            joins=[self.level.column.table],
+                            name=self._label_for_select, is_constant=True)]
         return selects
 
     def __eq__(self, other):

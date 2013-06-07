@@ -200,12 +200,6 @@ class FilterSelect(Select):
         else:
             return super(FilterSelect, self)._append_where(query, **kwargs)
 
-    def _trim_dependency(self, query):
-        if not self.need_subquery():
-            self.dependencies = []
-        else:
-            super(FilterSelect, self)._trim_dependency(query)
-
     def _contains_where(self, whereclause):
         """Isolates components of a where clause.
 
