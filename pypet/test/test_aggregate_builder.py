@@ -59,7 +59,6 @@ class TestAggregateBuilder(BaseTestCase):
 
 
 class TestTriggers(BaseTestCase):
-    fn_name = 'aggregates."trigger_function_agg_time_month_store_region_product_All"'
 
     def test_triggers(self, schema=None):
         c = self.cube
@@ -115,4 +114,8 @@ class TestTriggers(BaseTestCase):
 
     def tearDown(self):
         self.cube.table.bind.execute('DROP SCHEMA aggregates CASCADE');
+        if self.schema is None:
+            fn_name = 'trigger_function_agg_time_month_store_region_product_All'
+            self.cube.table.bind.execute('DROP FUNCTION IF EXISTS "ins_%s"() CASCADE' % fn_name)
+            self.cube.table.bind.execute('DROP FUNCTION IF EXISTS "upd_%s"() CASCADE' % fn_name)
         super(TestTriggers, self).tearDown()
