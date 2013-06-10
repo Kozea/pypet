@@ -66,11 +66,11 @@ class TestModel(BaseTestCase):
         assert result['All']['All']['All'].measure == 110000
 
         computed = ((computed / 1000).aggregate_with(aggregates.sum)
-                .label('measure'))
+                .label('new_measure'))
         query = self.cube.query.measure(computed)
         self.compare_agg(query)
         result = query.execute()
-        assert result['All']['All']['All'].measure == 110000 / 1000.
+        assert result['All']['All']['All'].new_measure == 110000 / 1000.
 
     def _append_aggregate_by_month(self):
         aggregate = Aggregate(self.agg_by_month_table, {

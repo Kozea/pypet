@@ -19,7 +19,7 @@ class Aggregator(object):
 
 class identity_agg(Aggregator):
 
-    def __call__(self, column_clause, cuboid):
+    def __call__(self, column_clause, cuboid=None):
         return column_clause
 
     def __nonzero__(self):
@@ -34,8 +34,8 @@ class identity_agg(Aggregator):
 
 class avg(Aggregator):
 
-    def __call__(self, column_clause, cuboid):
-        if cuboid.fact_count_column is not None:
+    def __call__(self, column_clause, cuboid=None):
+        if cuboid and cuboid.fact_count_column is not None:
             count = func.sum(cuboid.fact_count_column)
             return case([(count == 0, 0)], else_=(
                 func.sum(column_clause * cuboid.fact_count_column) /
@@ -62,7 +62,7 @@ class avg(Aggregator):
 
 class sum(Aggregator):
 
-    def __call__(self, column_clause, cuboid):
+    def __call__(self, column_clause, cuboid=None):
         return func.sum(column_clause)
 
     def py_impl(self, collection):
@@ -78,8 +78,8 @@ class sum(Aggregator):
 
 class count(sum):
 
-    def __call__(self, column_clause, cuboid):
-        if cuboid.fact_count_column is not None:
+    def __call__(self, column_clause, cuboid=None):
+        if cuboid and cuboid.fact_count_column is not None:
             return func.sum(cuboid.fact_count_column)
         else:
             return func.count(1)

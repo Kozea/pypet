@@ -126,7 +126,8 @@ class ValueSelect(Select):
     def _append_column(self, query, **kwargs):
         if kwargs['in_group'] and not getattr(self.column_clause, '_is_agg',
                 False):
-            col = func.avg(self.column_clause).label(self.name)
+            agg = self.comes_from.agg or func.avg
+            col = agg(self.column_clause).label(self.name)
             return self._replace_column(query, col)
         else:
             return super(ValueSelect, self)._append_column(query)
@@ -254,24 +255,11 @@ def by_class(selects):
 
 
 def process_selects(query, selects, **kwargs):
-    typed_selects = by_class(selects)
-    values = (typed_selects[ValueSelect] + typed_selects[OverSelect] +
-                typed_selects[AggregateSelect])
-    kwargs['in_group'] = bool(typed_selects[AggregateSelect])
+    kwargs['in_group'] = any(isinstance(a, AggregateSelect) for a in selects)
     for select in selects:
         query = select._append_join(query, **kwargs)
-    for value in values:
-        query = value._append_to_query(query, **kwargs)
-    for ids in typed_selects[IdSelect]:
-        query = ids._append_to_query(query, **kwargs)
-    for label in typed_selects[LabelSelect]:
-        query = label._append_to_query(query, **kwargs)
-    for filter in typed_selects[FilterSelect]:
-        query = filter._append_to_query(query, **kwargs)
-    for filter in typed_selects[PostFilterSelect]:
-        query = filter._append_to_query(query, **kwargs)
-    for filter in typed_selects[OrderSelect]:
-        query = filter._append_to_query(query, **kwargs)
+    for select in selects:
+        query = select._append_to_query(query, **kwargs)
     return query
 
 
