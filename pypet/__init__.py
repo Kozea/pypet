@@ -751,9 +751,11 @@ class AllLevel(Level):
 
     def _as_selects(self, cuboid=None):
         return [LabelSelect(self, name=self._label_for_select + '_label',
-                            column_clause=self.label_expression, is_constant=True),
+                            column_clause=self.label_expression,
+                            is_constant=True),
                 IdSelect(self, name=self._label_for_select,
-                         column_clause=self.label_expression, is_constant=True)]
+                         column_clause=self.label_expression,
+                         is_constant=True)]
 
     def _simplify(self, query):
         return self
@@ -826,6 +828,7 @@ class ResultProxy(OrderedDict):
         self.query = query
         self.orders = query.orders
         this = self
+
         class default_scalar_value(defaultdict):
 
             @property
@@ -855,7 +858,7 @@ class ResultProxy(OrderedDict):
         dim_key = self.dims[0]._label_for_select
         next_dims = self.dims[1:]
         append = lambda label, lines: ResultProxy(
-                self.query.axis(*next_dims), lines, label)
+            self.query.axis(*next_dims), lines, label)
 
         def key_func(x):
             label_key = '%s_label' % dim_key
@@ -869,7 +872,7 @@ class ResultProxy(OrderedDict):
         if len(self.dims) > 1 or not self.orders:
             lines = sorted(lines, key=key_func)
         for (key, label), lines in groupby(lines,
-                key_func):
+                                           key_func):
             result[key] = append(label, list(lines))
         return result
 
@@ -909,7 +912,7 @@ class OrderClause(CubeObject):
 
     def _as_selects(self, cuboid):
         sub_selects = [sel for sel in self.measure._as_selects(cuboid)
-                if not isinstance(sel, LabelSelect)]
+                       if not isinstance(sel, LabelSelect)]
         assert len(sub_selects) == 1
         col = sub_selects[0].column_clause
         if self.reverse:
@@ -938,7 +941,7 @@ class Query(_Generative):
         best_agg = self.cuboid._find_best_agg(self.parts)
         query = self._adapt(best_agg)
         things = query.parts
-        selects = [sel  for t in things for sel in t._as_selects(best_agg)]
+        selects = [sel for t in things for sel in t._as_selects(best_agg)]
         query = sql_select([], from_obj=query.cuboid.selectable)
         return compile(selects, query, best_agg)
 
