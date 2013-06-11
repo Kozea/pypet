@@ -44,11 +44,23 @@ def operator(fun):
 
 
 def is_agg(column):
-    if hasattr(column, '_is_agg'):
-        return column._is_agg
-    if all(getattr(col, '_is_agg', False) for col in column.base_columns):
-        return True
-    return False
+    if getattr(column, '_is_agg', False):
+        return [column._is_agg]
+    is_agg = [getattr(col, '_is_agg', False) for col in column.base_columns]
+    if all(is_agg):
+        return is_agg
+    return []
+
+def rank(name, partition_by=None, order_by=None):
+    fun = func.dense_rank()
+    fun._is_agg = aggregates.identity_agg
+    measure = RelativeMeasure(name, ConstantMeasure(fun,
+            agg=aggregates.identity_agg),
+            order_levels=order_by,
+            over_levels=partition_by,
+            desc=True)
+    return measure
+
 
 
 class CubeObject(_Generative):
@@ -87,11 +99,10 @@ class Measure(CubeObject):
     def select_instance(self, cuboid, *args, **kwargs):
         base = self._select_class(self, *args, **kwargs)
         if is_agg(base.column_clause):
-            base._is_agg = True
             return base
         if self.agg:
             col = self.agg(base.column_clause, cuboid)
-            col._is_agg = True
+            col._is_agg = self.agg
             return AggregateSelect(self,
                                    name=self.name,
                                    column_clause=col.label(self.name),
@@ -113,8 +124,10 @@ class Measure(CubeObject):
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
         if self.name in cc:
-            expr = self.replace_expr(cc[self.name])
-            return expr
+            col = cc[self.name]
+            if [self.agg] == is_agg(col):
+                expr = self.replace_expr(col)
+                return expr
         return self
 
     def _score(self, agg):
@@ -250,10 +263,10 @@ class RelativeMeasure(Measure):
         col = self.inner_agg(ms.column_clause, cuboid)
         col._is_agg = self.inner_agg
         over_expr = over(col, partition_by=partition, order_by=order)
-        over_expr._is_agg = False
+        over_expr._is_agg = self.agg
         return [self.select_instance(cuboid, column_clause=over_expr,
                                      name=self.name,
-                                     dependencies=measure_selects)]
+                                     dependencies=measure_selects + over_selects + order_selects)]
 
     def aggregate_with(self, agg):
         new_relative = (super(RelativeMeasure, self)
@@ -365,6 +378,17 @@ class ForceAgg(Measure):
         return ForceAgg(self.measure._adapt(aggregate), agg=self.agg)
 
     def _simplify(self, query):
+        cc = ColumnCollection(*query.inner_columns)
+        base = self.measure._simplify(query)
+        if self.name in cc:
+            col = cc[self.name]
+            agg = self.agg
+            col_is_agg = is_agg(col)
+            if not col_is_agg:
+                base = base.replace_expr(col)
+                return base
+            if col_is_agg == [self.agg]:
+                return base
         return ForceAgg(self.measure._simplify(query), self.agg)
 
     def _score(self, aggregate):
@@ -372,9 +396,18 @@ class ForceAgg(Measure):
 
     def _as_selects(self, cuboid):
         selects = self.measure._as_selects(cuboid)
+        agg_selects = []
         for select in selects:
-            if hasattr(select.column_clause, '_is_agg'):
-                del select.column_clause._is_agg
+            if is_agg(select.column_clause) != [self.agg]:
+                col = self.agg(select.column_clause)
+                col._is_agg = self.agg
+                agg_selects.append(AggregateSelect(
+                    self,
+                    name=self.name,
+                    column_clause=col.label(self.name),
+                    dependencies=[select]))
+            else:
+                agg_selects.append(select)
         return selects
 
 
@@ -1015,20 +1048,14 @@ class Query(_Generative):
 
     @_generative
     def top(self, n, expr, partition_by=None):
-        name = 'RANK OVER %s' % expr.name
-        fun = func.dense_rank()
-        fun._is_agg = True
         if (not isinstance(partition_by, list) and partition_by is not None):
             partition_by = [partition_by]
-
-        measure = RelativeMeasure(name, ConstantMeasure(fun,
-                agg=aggregates.identity_agg),
-                order_levels=[expr],
-                over_levels=partition_by,
-                desc=True)
+        order_by = [expr]
+        name = 'RANK OVER %s' % expr.name
+        measure = rank(name, partition_by, order_by)
         self.orders.append(OrderClause(measure))
         return self.append_filter(PostFilter(operators.le,
-            measure, ConstantMeasure(n)))
+                                            measure, ConstantMeasure(n)))
 
     def execute(self):
         return ResultProxy(self, self._as_sql().execute())

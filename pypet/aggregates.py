@@ -87,8 +87,39 @@ class count(sum):
     def py_impl(self, collection):
         return len(collection)
 
+class max(Aggregator):
+
+    def __call__(self, column_clause, cuboid=None):
+        return func.max(column_clause)
+
+    def py_impl(self, collection):
+        return max(collection)
+
+    def accumulator(self, column_name, new_row, agg_row, old_row=None):
+        max = func.max(new_row.c[column_name], agg_row)
+        if old_row is not None:
+            max = func.max(old_row, max)
+        return max
+
+
+class min(Aggregator):
+
+    def __call__(self, column_clause, cuboid=None):
+        return func.min(column_clause)
+
+    def accumulator(self, column_name, new_row, agg_row, old_row=None):
+        min = func.min(new_row.c[column_name], agg_row)
+        if old_row is not None:
+            min = func.min(old_row, min)
+        return min
+
+    def py_impl(self, collection):
+        return min(collection)
+
 
 identity_agg = identity_agg()
 sum = sum()
 avg = avg()
 count = count()
+min = min()
+max = max()

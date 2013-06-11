@@ -123,6 +123,24 @@ class Measure(Declarative):
         return pypet.Measure(*args, **kwargs)
 
 
+class RelativeMeasure(Declarative):
+    """Relative Declarative measure."""
+    __metaclass__ = MetaMeasure
+
+    @staticmethod
+    def _make_instance(cls, *args, **kwargs):
+        args = ['_unbound_'] + list(args)
+        if len(args) == 1:
+            args = args + [UNKNOWN_VALUE]
+        measure = Measure(None, cls.expression, cls.inagg)
+        return pypet.RelativeMeasure(cls.name,
+                                     measure,
+                                     cls.over,
+                                     cls.order,
+                                     cls.agg,
+                                     **kwargs)
+
+
 class MetaHierarchy(MetaDeclarative):
 
     @staticmethod
