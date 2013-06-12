@@ -181,17 +181,36 @@ class Measure(CubeObject):
         self.expression = expression
 
 
+
 class CountMeasure(Measure):
 
-    def __init__(self, name):
-        super(CountMeasure, self).__init__(name, literal(1),
-                                           agg=aggregates.count)
+    def __init__(self, name, expr=literal(1), distinct=False):
+        if distinct:
+            agg = aggregates.count_distinct
+        else:
+            agg = aggregates.count
+        super(CountMeasure, self).__init__(name, expr,
+                                               agg=agg)
 
     def _adapt(self, aggregate):
         return self
 
     def _score(self, agg):
         return (1 * 0.8 ** (len(agg.levels))), []
+
+    def _simplify(self, query):
+        cc = ColumnCollection(*query.inner_columns)
+        groups = [g._simplify(query) for g in self.need_groups]
+        self.need_groups = groups
+        if self.name in cc:
+            col = cc[self.name].label(self.name)
+            expr = self.replace_expr(col)
+            if is_agg(col) in ([aggregates.count],
+                              [aggregates.count_distinct]):
+                expr = expr.aggregate_with(aggregates.sum)
+            return expr
+        return self
+
 
 
 class RelativeMeasure(Measure):
@@ -201,7 +220,7 @@ class RelativeMeasure(Measure):
     def __init__(self, name, measure, over_levels=None, order_levels=None,
                  agg=aggregates.identity_agg, desc=True, metadata=None, need_groups=None):
         self.name = name
-        self.measure = measure
+        self.measure = measure._unnest()
         self.over_levels = over_levels or []
         self.order_levels = order_levels or []
         self.agg = agg
@@ -387,7 +406,7 @@ class MeasureLabel(ComputedMeasure):
 class ForceAgg(Measure):
 
     def __init__(self, measure, agg):
-        self.measure = measure
+        self.measure = measure._unnest()
         self.agg = agg
 
     def __getattr__(self, key):
@@ -944,7 +963,7 @@ class ResultProxy(OrderedDict):
 class OrderClause(CubeObject):
 
     def __init__(self, measure, reverse=False):
-        self.measure = measure
+        self.measure = measure._unnest()
         self.reverse = reverse
 
     def _score(self, agg):

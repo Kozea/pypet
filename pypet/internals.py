@@ -128,7 +128,7 @@ class ValueSelect(Select):
     def _append_column(self, query, **kwargs):
         if kwargs['in_group'] and not getattr(self.column_clause, '_is_agg',
                 False):
-            agg = self.comes_from.agg or func.avg
+            agg = self.comes_from.agg or func.max
             col = agg(self.column_clause).label(self.name)
             return self._replace_column(query, col)
         else:
@@ -268,7 +268,7 @@ def process_selects(query, selects, **kwargs):
 
 
 def compile(selects, query, cuboid, level=0):
-    if level > 30:
+    if level > 10:
         raise Exception('Not convergent query, abort, abort!')
     simples = [sel for sub in selects for sel in
                 sub.simplify(query, cuboid)]
