@@ -12,9 +12,12 @@ class Aggregator(object):
     def __call__(self, column_clause, cuboid):
         raise NotImplemented("Not implemented!")
 
-    @abc.abstractmethod
     def accumulator(self, old_value, new_value):
         raise NotImplemented("Not implemented!")
+
+    def py_impl(self, collection):
+        raise NotImplemented("Not implemented!")
+
 
 
 class identity_agg(Aggregator):
@@ -87,6 +90,12 @@ class count(sum):
     def py_impl(self, collection):
         return len(collection)
 
+class count_distinct(Aggregator):
+
+    def __call__(self, column_clause, cuboid=None):
+        return func.count(column_clause.distinct())
+
+
 class max(Aggregator):
 
     def __call__(self, column_clause, cuboid=None):
@@ -117,9 +126,19 @@ class min(Aggregator):
         return min(collection)
 
 
+class custom_agg(Aggregator):
+
+    def __init__(self, fun):
+        self.fun = fun
+
+    def __call__(self, column_clause, cuboid=None):
+        return self.fun(column_clause)
+
+
 identity_agg = identity_agg()
 sum = sum()
 avg = avg()
 count = count()
+count_distinct = count_distinct()
 min = min()
 max = max()

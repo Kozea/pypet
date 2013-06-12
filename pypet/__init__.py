@@ -4,6 +4,7 @@ from sqlalchemy.sql import (func, over, operators,
                             ColumnCollection)
 from sqlalchemy import types
 from sqlalchemy.sql.expression import (
+    literal,
     or_, and_, ColumnClause, _Generative, _generative, _literal_as_binds)
 from collections import OrderedDict, defaultdict
 from itertools import groupby
@@ -52,10 +53,8 @@ def is_agg(column):
     return []
 
 def rank(name, partition_by=None, order_by=None):
-    fun = func.dense_rank()
-    fun._is_agg = aggregates.identity_agg
-    measure = RelativeMeasure(name, ConstantMeasure(fun,
-            agg=aggregates.identity_agg),
+    fun = func.dense_rank
+    measure = RelativeMeasure(name, ConstantMeasure(1, agg=aggregates.custom_agg(lambda x: fun())),
             order_levels=order_by,
             over_levels=partition_by,
             desc=True)
@@ -78,11 +77,15 @@ class Measure(CubeObject):
 
     _select_class = ValueSelect
 
-    def __init__(self, name, expression, agg=aggregates.sum, metadata=None):
+    def __init__(self, name, expression, agg=aggregates.sum, metadata=None, need_groups=None):
         self.expression = expression
         self.agg = agg
         self.name = name or self.expression.label
         self.metadata = metadata or MetaData()
+        self.need_groups = need_groups or []
+
+    def _unnest(self):
+        return self
 
     @property
     def agg(self):
@@ -97,8 +100,12 @@ class Measure(CubeObject):
         self._agg = value
 
     def select_instance(self, cuboid, *args, **kwargs):
+        clauses = []
+        for group in self.need_groups:
+            clauses.extend(s.column_clause for s in group._as_selects(cuboid))
+        kwargs.setdefault('need_groups', clauses)
         base = self._select_class(self, *args, **kwargs)
-        if is_agg(base.column_clause):
+        if is_agg(base.column_clause) == [self.agg]:
             return base
         if self.agg:
             col = self.agg(base.column_clause, cuboid)
@@ -123,11 +130,12 @@ class Measure(CubeObject):
 
     def _simplify(self, query):
         cc = ColumnCollection(*query.inner_columns)
+        groups = [g._simplify(query) for g in self.need_groups]
+        self.need_groups = groups
         if self.name in cc:
             col = cc[self.name]
-            if [self.agg] == is_agg(col):
-                expr = self.replace_expr(col)
-                return expr
+            expr = self.replace_expr(col)
+            return expr.label(self.name)
         return self
 
     def _score(self, agg):
@@ -166,7 +174,7 @@ class Measure(CubeObject):
         self.agg = agg_fun
 
     def percent_over(self, *levels):
-        return (self / self.over(*levels).aggregate_with(self.agg) * 100)
+        return (self / self.over(*levels) * 100)
 
     @_generative
     def replace_expr(self, expression):
@@ -176,8 +184,7 @@ class Measure(CubeObject):
 class CountMeasure(Measure):
 
     def __init__(self, name):
-        expr = func.count(1)
-        super(CountMeasure, self).__init__(name, expr,
+        super(CountMeasure, self).__init__(name, literal(1),
                                            agg=aggregates.count)
 
     def _adapt(self, aggregate):
@@ -192,7 +199,7 @@ class RelativeMeasure(Measure):
     _select_class = OverSelect
 
     def __init__(self, name, measure, over_levels=None, order_levels=None,
-                 agg=aggregates.identity_agg, desc=True, metadata=None):
+                 agg=aggregates.identity_agg, desc=True, metadata=None, need_groups=None):
         self.name = name
         self.measure = measure
         self.over_levels = over_levels or []
@@ -201,6 +208,7 @@ class RelativeMeasure(Measure):
         self.inner_agg = self.measure.agg
         self.desc = desc
         self.metadata = metadata or MetaData()
+        self.need_groups = need_groups or []
 
     def _adapt(self, aggregate):
         over_levels = [over_level._adapt(aggregate) for over_level in
@@ -241,6 +249,11 @@ class RelativeMeasure(Measure):
         order_levels = [order_level._simplify(query) for order_level in
                         self.order_levels]
         ms = self.measure._simplify(query)
+
+        if not ms.agg:
+            ms = ms.aggregate_with(self.inner_agg)
+            ms.need_groups.extend(over_levels)
+            return ms
         return RelativeMeasure(self.name, ms, over_levels, order_levels,
                                agg=self.agg, desc=self.desc)
 
@@ -266,7 +279,7 @@ class RelativeMeasure(Measure):
         over_expr._is_agg = self.agg
         return [self.select_instance(cuboid, column_clause=over_expr,
                                      name=self.name,
-                                     dependencies=measure_selects + over_selects + order_selects)]
+                                     dependencies=measure_selects + over_selects)]
 
     def aggregate_with(self, agg):
         new_relative = (super(RelativeMeasure, self)
@@ -317,6 +330,7 @@ class ComputedMeasure(Measure):
         self.operands = operands
         self.agg = agg
         self.metadata = metadata or MetaData()
+        self.need_groups = []
 
     def _adapt(self, aggregate):
         return ComputedMeasure(self.name, self.operator,
@@ -356,13 +370,18 @@ class MeasureLabel(ComputedMeasure):
 
     def __init__(self, measure, name=None):
         name = name or 'anon_%d' % id(measure)
+        measure = measure._unnest()
         super(MeasureLabel, self).__init__(name, lambda x: x, (measure,),
                                            measure.agg)
 
+    def _unnest(self):
+        return self.operands[0]._unnest()
+
+    def _simplify(self, query):
+        return MeasureLabel(self.operands[0]._simplify(query), self.name)
+
     def label(self, name=None):
-        if name:
-            return super(MeasureLabel, self).label(name)
-        return self
+        return super(MeasureLabel, self).label(name)
 
 
 class ForceAgg(Measure):
@@ -384,12 +403,9 @@ class ForceAgg(Measure):
             col = cc[self.name]
             agg = self.agg
             col_is_agg = is_agg(col)
-            if not col_is_agg:
-                base = base.replace_expr(col)
-                return base
             if col_is_agg == [self.agg]:
-                return base
-        return ForceAgg(self.measure._simplify(query), self.agg)
+                return base.replace_expr(col.label(self.name)).label(self.name)
+        return ForceAgg(base, self.agg).label(self.name)
 
     def _score(self, aggregate):
         return self.measure._score(aggregate)
@@ -398,17 +414,14 @@ class ForceAgg(Measure):
         selects = self.measure._as_selects(cuboid)
         agg_selects = []
         for select in selects:
-            if is_agg(select.column_clause) != [self.agg]:
-                col = self.agg(select.column_clause)
-                col._is_agg = self.agg
-                agg_selects.append(AggregateSelect(
-                    self,
-                    name=self.name,
-                    column_clause=col.label(self.name),
-                    dependencies=[select]))
-            else:
-                agg_selects.append(select)
-        return selects
+            col = self.agg(select.column_clause)
+            col._is_agg = self.agg
+            agg_selects.append(AggregateSelect(
+                self,
+                name=self.name,
+                column_clause=col.label(self.name),
+                dependencies=[select]))
+        return agg_selects
 
 
 class CutPoint(CubeObject):

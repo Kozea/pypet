@@ -40,7 +40,7 @@ class Select(_Generative):
 
     def __init__(self, comes_from, column_clause=None, name=None,
             dependencies=None, joins=None, where_clause=None,
-            is_constant=False):
+            is_constant=False, need_groups=None):
         self.column_clause = column_clause
         self.comes_from = comes_from
         self.name = name
@@ -48,11 +48,12 @@ class Select(_Generative):
         self.joins = joins or []
         self.where_clause = where_clause
         self.is_constant = is_constant
+        self.need_groups = need_groups or []
 
     def _trim_dependency(self, query):
         _froms_col = [col for _from in query._froms for col in _from.c]
         for dep in self.dependencies:
-            if isinstance(dep, AggregateSelect):
+            if isinstance(dep, (AggregateSelect, OverSelect)):
                 continue
             dep._trim_dependency(query)
             if any(col.key == dep.name for col in
@@ -104,6 +105,7 @@ class Select(_Generative):
     def _append_to_query(self, query, **kwargs):
         query = self._append_where(query, **kwargs)
         query = self._append_column(query, **kwargs)
+        query = query.group_by(*self.need_groups)
         return query
 
     def visit(self, fun):
@@ -138,6 +140,9 @@ class AggregateSelect(ValueSelect):
     def _append_column(self, query, **kwargs):
         return self._replace_column(query,
                     self.column_clause.label(self.name))
+
+    def _trim_dependency(self, query):
+        pass
 
 
 class OverSelect(Select):
@@ -255,7 +260,6 @@ def by_class(selects):
 
 
 def process_selects(query, selects, **kwargs):
-    kwargs['in_group'] = any(isinstance(a, AggregateSelect) for a in selects)
     for select in selects:
         query = select._append_join(query, **kwargs)
     for select in selects:
@@ -264,7 +268,7 @@ def process_selects(query, selects, **kwargs):
 
 
 def compile(selects, query, cuboid, level=0):
-    if level > 10:
+    if level > 30:
         raise Exception('Not convergent query, abort, abort!')
     simples = [sel for sub in selects for sel in
                 sub.simplify(query, cuboid)]
@@ -282,8 +286,20 @@ def compile(selects, query, cuboid, level=0):
     subqueries = [sorted(val, key=lambda x: -tags.get(x, 0))
         for _, val in sorted(subqueries.items(), key=lambda x: x[0])]
     values = subqueries[0]
+
+    kwargs = {'in_group': False}
+    if any(isinstance(a, (AggregateSelect,)) for a in values):
+        kwargs['in_group'] = True
+        if any(isinstance(a, OverSelect) and not a.need_groups for a in values):
+            kwargs['in_group'] = False
+            for a in list(values):
+                if isinstance(a, AggregateSelect):
+                    values.remove(a)
+                    values.extend(a.dependencies)
+    if any(getattr(a, 'need_groups', []) for a in values):
+        kwargs['in_group'] = True
     idx = 0
-    query = process_selects(query, values)
+    query = process_selects(query, values, **kwargs)
     columns_to_keep = []
     group_bys = []
     for column in list(query.inner_columns):
@@ -292,6 +308,8 @@ def compile(selects, query, cuboid, level=0):
                     for sub in reduce(list.__add__, subqueries[idx + 1:],
                         []))):
                 columns_to_keep.append(column)
+        if hasattr(column, 'partition_by'):
+            group_bys.append(column.partion_by)
     for column in query._group_by_clause:
         if any(col.shares_lineage(column) for col in columns_to_keep):
             group_bys.append(column)
