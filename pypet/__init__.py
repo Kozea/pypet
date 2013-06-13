@@ -205,9 +205,10 @@ class CountMeasure(Measure):
         if self.name in cc:
             col = cc[self.name].label(self.name)
             expr = self.replace_expr(col)
-            if is_agg(col) in ([aggregates.count],
-                              [aggregates.count_distinct]):
+            if is_agg(col) == [aggregates.count]:
                 expr = expr.aggregate_with(aggregates.sum)
+            elif is_agg(col) == [aggregates.count_distinct]:
+                raise ValueError('Cannot aggregate distinct')
             return expr
         return self
 

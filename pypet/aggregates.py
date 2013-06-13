@@ -90,13 +90,11 @@ class count(sum):
     def py_impl(self, collection):
         return len(collection)
 
+
 class count_distinct(Aggregator):
 
     def __call__(self, column_clause, cuboid=None):
-        if cuboid and cuboid.fact_count_column is not None:
-            return func.sum(cuboid.fact_count_column)
-        else:
-            return func.count(column_clause.distinct())
+        return func.count(column_clause.distinct())
 
 
 class max(Aggregator):
