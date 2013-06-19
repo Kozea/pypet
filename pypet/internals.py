@@ -2,8 +2,27 @@ from sqlalchemy.sql import (util as sql_util,
         ColumnCollection)
 from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
-        and_, _Generative, _generative, func)
+        and_, _Generative, _generative, func, Join)
 from operator import and_ as builtin_and
+
+
+def find_join(_from, table):
+    if isinstance(_from, Join):
+        join = find_join(_from.left, table)
+        if join is not None:
+            _from.left = join
+            return _from
+        join = find_join(_from.right, table)
+        if join is not None:
+            _from.right = join
+            return _from
+    for fk in table.foreign_keys:
+        if fk.references(_from):
+            return _from.join(table)
+    for fk in _from.foreign_keys:
+        if fk.references(table):
+            return _from.join(table)
+
 
 
 def join_table_with_query(query, table):
@@ -17,24 +36,20 @@ def join_table_with_query(query, table):
         # The join is already in the query
         return
     replace_clause_index = None
+    found = False
     for index, _from in enumerate(query._froms):
-        for fk in _from.foreign_keys:
-            if fk.references(table):
-                replace_clause_index, orig_clause = index, _from
-                break
-        for fk in table.foreign_keys:
-            if fk.references(_from):
-                replace_clause_index, orig_clause = index, _from
-                break
-        # Replace the query
-    if replace_clause_index is None:
+        replacement = find_join(_from, table)
+        if replacement is not None:
+            query._from_obj = OrderedSet(
+                query._from_obj[:index] +
+                [replacement] +
+                query._from_obj[index + 1:])
+            found = True
+            break
+    if not found:
         raise ValueError('Cannot find join between %s and %s' % (table,
-            query))
-    query._from_obj = OrderedSet(
-            query._from_obj[:replace_clause_index] +
-            [(orig_clause.join(table))] +
-            query._from_obj[replace_clause_index + 1:])
-
+                                                                 query))
+    return
 
 class Select(_Generative):
 
@@ -238,11 +253,25 @@ class FilterSelect(Select):
 
 class OrderSelect(Select):
 
+    def __init__(self, comes_from, reverse=False, **kwargs):
+        super(OrderSelect, self).__init__(comes_from, **kwargs)
+        self.reverse = reverse
+
+    def need_subquery(self):
+        return any(d.need_subquery() or isinstance(d, OverSelect)
+                   for d in self.dependencies)
+
     def _append_column(self, query, **kwargs):
-        query = query.order_by(self.column_clause)
+        sort_col = self.column_clause
+        if self.reverse:
+            sort_col = sort_col.desc()
+        else:
+            sort_col = sort_col.asc()
+        query = query.order_by(sort_col)
         if kwargs['in_group']:
-            self.column_clause._keep_group = True
-            query = query.group_by(self.column_clause)
+            if not getattr(self.column_clause, '_is_agg', False):
+                self.column_clause._keep_group = True
+                query = query.group_by(self.column_clause)
         return query
 
 
@@ -317,6 +346,7 @@ def compile(selects, query, cuboid, level=0):
             group_bys.append(column)
     if len(subqueries) > 1:
         for column in query._order_by_clause:
+            column = column.element
             if column.key not in [c.key for c in columns_to_keep]:
                 columns_to_keep.append(column)
     query = query.with_only_columns(columns_to_keep)
@@ -328,7 +358,7 @@ def compile(selects, query, cuboid, level=0):
             cuboid = cuboid._generate()
             new_fc = None
             for col in query.inner_columns:
-                if col.name == 'FACT_COUNT':
+                if col.name == cuboid.fact_count_column_name:
                     new_fc = col
             cuboid.fact_count_column = new_fc
         return compile(simples, query, cuboid, level=level + 1)

@@ -43,7 +43,6 @@ def operator(fun):
         return fun(self, wrap_const(other))
     return op_fun
 
-
 def is_agg(column):
     if getattr(column, '_is_agg', False):
         return [column._is_agg]
@@ -51,6 +50,7 @@ def is_agg(column):
     if all(is_agg):
         return is_agg
     return []
+
 
 def rank(name, partition_by=None, order_by=None):
     fun = func.dense_rank
@@ -106,6 +106,7 @@ class Measure(CubeObject):
         kwargs.setdefault('need_groups', clauses)
         base = self._select_class(self, *args, **kwargs)
         if is_agg(base.column_clause) == [self.agg]:
+            base.column_clause._is_agg = aggregates.identity_agg
             return base
         if self.agg:
             col = self.agg(base.column_clause, cuboid)
@@ -193,7 +194,7 @@ class CountMeasure(Measure):
                                                agg=agg)
 
     def _adapt(self, aggregate):
-        return self
+        return self.replace_expr(aggregate.measures_expr[self.name])
 
     def _score(self, agg):
         return (1 * 0.8 ** (len(agg.levels))), []
@@ -205,13 +206,15 @@ class CountMeasure(Measure):
         if self.name in cc:
             col = cc[self.name].label(self.name)
             expr = self.replace_expr(col)
-            if is_agg(col) == [aggregates.count]:
+            isagg = is_agg(col)
+            if isagg == [aggregates.count]:
                 expr = expr.aggregate_with(aggregates.sum)
-            elif is_agg(col) == [aggregates.count_distinct]:
+            elif is_agg == [aggregates.count_distinct]:
                 raise ValueError('Cannot aggregate distinct')
+            elif not is_agg:
+                expr.column_clause._is_agg = aggregates.count
             return expr
         return self
-
 
 
 class RelativeMeasure(Measure):
@@ -446,8 +449,9 @@ class ForceAgg(Measure):
 
 class CutPoint(CubeObject):
     """Abstract class marking a class as suitable for a CutPoint."""
-    pass
 
+    def _unnest(self):
+        return self
 
 class Filter(CubeObject):
 
@@ -616,6 +620,7 @@ class Level(CutPoint):
         self.label_column = (label_column if label_column is not None
                              else column)
         self.name = name
+        self.is_label = False
         self.column = column
         if label_expression is None:
             label_expression = lambda x: x
@@ -699,6 +704,12 @@ class Level(CutPoint):
     def _id_column(self):
         return self.column
 
+    @property
+    @_generative
+    def label_level(self):
+        self.id_column = self.label_column
+        self.is_label = True
+
     def _as_selects(self, cuboid=None):
         sub_selects = []
         sub_joins = []
@@ -706,17 +717,22 @@ class Level(CutPoint):
             sub_selects = self.child_level._as_selects(cuboid)
             sub_joins = [elem for alist in sub_selects
                          for elem in alist.joins]
-        return [LabelSelect(self,
+        label_select = LabelSelect(self,
                             column_clause=self._label_column,
                             name='%s_label' % self._label_for_select,
                             dependencies=[],
                             joins=sub_joins + [self.column.table,
-                                               self.label_column.table]),
-                IdSelect(self, column_clause=self.column,
-                         name=self._label_for_select,
-                         dependencies=[],
-                         joins=sub_joins + [self._id_column.table,
-                                            self.label_column.table])]
+                                               self.label_column.table])
+
+        if self.is_label:
+            return [label_select]
+        else:
+            return [IdSelect(self, column_clause=self.column,
+                             name=self._label_for_select,
+                             dependencies=[],
+                             joins=sub_joins + [self._id_column.table,
+                                                self.label_column.table]),
+                    label_select]
 
     def _adapt(self, aggregate):
         for level in aggregate.levels:
@@ -977,14 +993,12 @@ class OrderClause(CubeObject):
         return OrderClause(self.measure._simplify(query), self.reverse)
 
     def _as_selects(self, cuboid):
-        sub_selects = [sel for sel in self.measure._as_selects(cuboid)
-                       if not isinstance(sel, LabelSelect)]
-        assert len(sub_selects) == 1
+        sub_selects = [sel for sel in self.measure._as_selects(cuboid)]
         col = sub_selects[0].column_clause
-        if self.reverse:
-            col = col.desc()
+        if is_agg(col):
+            col._is_agg = is_agg(col)[0]
         return [OrderSelect(self, column_clause=col,
-                dependencies=sub_selects)]
+                dependencies=sub_selects, reverse=self.reverse)]
 
 
 class Query(_Generative):
@@ -1016,7 +1030,6 @@ class Query(_Generative):
         values = self.axes + self.measures + self.orders
         if self.filter_clause is not None:
             values.append(self.filter_clause)
-        values.append(CountMeasure('FACT_COUNT'))
         return values
 
     @_generative
@@ -1093,17 +1106,26 @@ class Query(_Generative):
     def execute(self):
         return ResultProxy(self, self._as_sql().execute())
 
+    def __getslice__(self, i, j):
+        return ResultProxy(self, self._as_sql().offset(i).limit(j-i).execute())
+
 
 class Aggregate(_Generative):
 
-    def __init__(self, selectable, levels, measures, fact_count_column):
+    def __init__(self, selectable, levels, measures, fact_count_column,
+                 fact_count_measure=None):
         self.selectable = selectable
+        self.fact_count_column = fact_count_column
+        self.fact_count_column_name = fact_count_column.name
+        self.fact_count_measure = fact_count_measure or  CountMeasure(self.fact_count_column_name).label('FACT_COUNT')
+        measures = dict(measures)
+        measures[self.fact_count_measure] = self.fact_count_column
         self.measures_expr = OrderedDict((measure.name, expr)
                 for measure, expr in measures.items())
         self.measures = OrderedDict((measure.name, measure)
                 for measure, expr in measures.items())
         self.levels = levels
-        self.fact_count_column = fact_count_column
+
 
     def score(self, things):
         scores, dims = zip(*[thing._score(self) for thing in things])
@@ -1123,7 +1145,8 @@ class Aggregate(_Generative):
 class Cube(_Generative):
 
     def __init__(self, metadata, fact_table, dimensions, measures,
-            aggregates=None, fact_count_column=None):
+            aggregates=None, fact_count_column=None,
+            fact_count_measure_name='FACT_COUNT'):
         self.alchemy_md = metadata
         self.dimensions = OrderedDict((dim.name, dim) for dim in dimensions)
         self.measures = OrderedDict((measure.name, measure) for measure in
@@ -1131,6 +1154,12 @@ class Cube(_Generative):
         self.table = fact_table
         self.aggregates = aggregates or []
         self.fact_count_column = fact_count_column
+        self.fact_count_measure_name = 'FACT_COUNT'
+        self.fact_count_column_name = self.fact_count_measure_name
+        self.fact_count_measure = CountMeasure(fact_count_measure_name)
+
+        self.measures[fact_count_measure_name] = self.fact_count_measure
+
 
     @property
     def query(self):

@@ -229,10 +229,6 @@ class NamingConvention(object):
                                      measures=measures_str)
 
     @classmethod
-    def build_fact_count_column_name(cls):
-        return cls.fact_count_column_name
-
-    @classmethod
     def matches_table_name(cls, cube, table):
         table_name_re = cls.table_name.replace('{levels}', '.*')
         table_name_re = table_name_re.replace('{measures}', '.*')
@@ -554,20 +550,18 @@ class AggBuilder(object):
         axis_columns = {}
         measure_columns = []
         cube = self.query.cuboid
+        fact_count_column_name = cube.fact_count_measure.name
+        query = self.query._generate()
+        query.measures.append(CountMeasure(fact_count_column_name))
         axes = filter(lambda x: not isinstance(x, AllLevel), self.query.axes)
         measures = filter(lambda x: type(x) == Measure, self.query.measures)
         table_name = self.naming_convention.build_table_name(self.query.axes,
                                                              measures)
-        query = self.query._generate()
         base_agg = cube._find_best_agg(query.parts)
-        fact_count_column_name = (self.naming_convention.
-                                  build_fact_count_column_name())
-        query.measures.append(CountMeasure(fact_count_column_name))
         sql_query = query._as_sql()
         # Work on the "raw" query to add the fact count column
         sql_query = sql_query.alias()
-        fact_count_col = (sql_query.c[fact_count_column_name]
-                          .label(fact_count_column_name))
+        fact_count_col = (sql_query.c[cube.fact_count_measure.name])
         # Build aliases for axes and measures
         for axis in axes:
             label = self.naming_convention.build_level_name(axis)

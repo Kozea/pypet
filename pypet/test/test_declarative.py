@@ -149,7 +149,7 @@ class TestCube(BaseTestCase):
             quantity = Measure('qty', agg=aggregates.sum)
 
         assert TestCube.d.keys() == ['store', 'product', 'time']
-        assert TestCube.m.keys() == ['price', 'quantity']
+        assert TestCube.m.keys() == ['price', 'quantity', 'FACT_COUNT']
         assert isinstance(TestCube, pypet.Cube)
         assert isinstance(TestCube.price, pypet.Measure)
         assert TestCube.price.name == 'price'

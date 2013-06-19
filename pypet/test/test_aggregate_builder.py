@@ -45,8 +45,8 @@ class TestAggregateBuilder(BaseTestCase):
                 self.cube.d['time'].l['year'],
                 self.cube.d['product'].l['product'],
                 self.cube.d['store'].l['country']])
-        assert set(month.measures.keys()) == set(['Unit Price', 'Quantity'])
-        assert set(year.measures.keys()) == set(['Unit Price', 'Quantity'])
+        assert set(month.measures.keys()) == set(['Unit Price', 'Quantity', 'FACT_COUNT'])
+        assert set(year.measures.keys()) == set(['Unit Price', 'Quantity', 'FACT_COUNT'])
 
         sql_query = str(query._as_sql())
         assert self.agg_by_month_table.name in sql_query
@@ -68,6 +68,7 @@ class TestTriggers(BaseTestCase):
         builder = AggBuilder(query)
         builder.build(with_trigger=True, schema=schema)
         old_total_qty = c.query.axis().execute()["Quantity"]
+        old_total_fact_count = c.query.axis().execute()["FACT_COUNT"]
         # Test with a value already in the agg table
         c.table.insert({
             'store_id': 1,
@@ -84,6 +85,7 @@ class TestTriggers(BaseTestCase):
         assert 'facts_table' not in str(c.query._as_sql())
         assert newresult == result
         assert newresult["Quantity"] == old_total_qty + 200
+        assert newresult["FACT_COUNT"] == old_total_fact_count + 200
         # Test with a new value (insert statement)
         c.table.insert({
             'store_id': 1,
@@ -103,6 +105,7 @@ class TestTriggers(BaseTestCase):
                 c.d['time'].l['year'].member_by_label('2020')).execute()
         assert len(res) == 1
         assert res.by_label()['2020'].Quantity == 200
+        assert res.by_label()['2020'].FACT_COUNT == 200
 
     def test_in_schema(self):
         self.test_triggers(schema='aggregates')
