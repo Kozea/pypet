@@ -44,7 +44,6 @@ def test_hierarchy():
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
 
         assert getattr(TimeHierarchy, key).name == key
-        assert getattr(TimeHierarchy, key) == getattr(TimeHierarchy, key)
 
 
 def test_dimension():
@@ -72,8 +71,6 @@ def test_dimension():
 
     assert isinstance(TimeDimension.h1, pypet.Hierarchy)
     assert isinstance(TimeDimension.h1.l1, pypet.Level)
-    assert TimeDimension.h1.l1 == TimeDimension.h1.l1
-    assert TimeDimension.h1.l1 != TimeDimension.h2.l1_2
     assert TimeDimension.h1.name == 'h1'
     assert TimeDimension.h1.l1.name == 'l1'
     assert TimeDimension.metadata == {'time': 'Label it is'}

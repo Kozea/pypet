@@ -1,5 +1,5 @@
 from pypet.test import BaseTestCase
-from pypet import Aggregate
+from pypet import Aggregate, OrFilter, AndFilter
 from pypet import aggregates
 from sqlalchemy.sql import func
 
@@ -198,9 +198,62 @@ class TestModel(BaseTestCase):
                         self.cube.d['time'].l['year']['2009-01-01']))
         result = query.execute().by_label()
         assert set(result.keys()) == set(['Europe'])
+        query = self.cube.query.axis(self.cube.d['store'].l['store']).filter(
+            OrFilter(self.cube.d['store'].l['country'][1],
+                      self.cube.d['store'].l['country'][2]))
+        result = query.execute().by_label()
+        assert set(result.keys()) == set([
+            'Food Mart.fr', 'ACME.fr', 'Food Mart.de', 'ACME.de'])
+
         query2 = query2.filter(self.cube.d['time'].l['year']['2010-01-01'])
         result = query2.execute().by_label()
         assert result['Food Mart.de']['CA_percent_by_region'] == 51.2820512820513
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] > 10000))
+        assert query.execute().keys() == [3, 4, 5, 6]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] < 10000))
+        assert query.execute().keys() == [1, 2, 7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] == 6400))
+        assert query.execute().keys() == [7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] <= 6400))
+        assert query.execute().keys() == [7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] >= 6400))
+        assert query.execute().keys() == [1, 2, 3, 4, 5, 6, 7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter(self.cube.m['Price'] != 6400))
+        assert query.execute().keys() == [1, 2, 3, 4, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter(self.cube.m['Price'] != 6400)
+                .filter(self.cube.m['Price'] != 15000))
+        assert query.execute().keys() == [1, 2, 3, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter((self.cube.m['Price'] != 6400) &
+                        (self.cube.m['Price'] != 15000)))
+        assert query.execute().keys() == [1, 2, 3, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(((self.cube.m['Price'].between(6400, 10000)))))
+        assert query.execute().keys() == [1, 2, 7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(((self.cube.m['Price'] <= 6400) |
+                         (self.cube.m['Price'] > 10000)) &
+                         (self.cube.m['Price'] != 6400)))
+        assert query.execute().keys() == [3, 4, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'] == 1))
+        assert query.execute().keys() == [1, 2, 3, 4]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'].label_only == 'Europe'))
+        assert query.execute().keys() == [1, 2, 3, 4]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'].label_only.like('%%mer%%')))
+        assert query.execute().keys() == [5, 6, 7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['store'].label_only.ilike('%%mart%%')))
+        assert query.execute().keys() == [3, 4, 6, 8]
 
 
     def test_top(self):
