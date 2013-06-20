@@ -5,7 +5,7 @@ from pypet.util import TimeDimension
 from datetime import date
 from pypet import aggregates
 from sqlalchemy.sql import func
-from itertools import cycle, izip
+from itertools import cycle
 import unittest
 
 
@@ -202,7 +202,7 @@ class BaseTestCase(unittest.TestCase):
         days = cycle([3, 12, 21, 29])
         prices = iter(cycle([100, 500, 1000]))
         quantities = iter(cycle([1, 5, 1, 2, 3, 20, 8]))
-        values = iter((date(*value) for value in izip(years, months, days)))
+        values = iter((date(*value) for value in zip(years, months, days)))
         for value in self.product_table.select().with_only_columns([
             self.product_table.c.product_id,
             self.store_table.c.store_id]).execute():

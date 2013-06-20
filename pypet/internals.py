@@ -4,6 +4,7 @@ from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
         and_, _Generative, _generative, func, Join)
 from operator import and_ as builtin_and
+from functools import reduce
 
 
 def find_join(_from, table):
@@ -313,11 +314,11 @@ def compile(selects, query, cuboid, level=0):
     for select in simples:
         select.visit(visit_sub)
     subqueries = [sorted(val, key=lambda x: -tags.get(x, 0))
-        for _, val in sorted(subqueries.items(), key=lambda x: x[0])]
+        for _, val in sorted(list(subqueries.items()), key=lambda x: x[0])]
     values = subqueries[0]
 
     kwargs = {'in_group': False}
-    if any(isinstance(a, (AggregateSelect,)) for a in values):
+    if any(isinstance(a, AggregateSelect) for a in values):
         kwargs['in_group'] = True
         if any(isinstance(a, OverSelect) and not a.need_groups for a in values):
             kwargs['in_group'] = False

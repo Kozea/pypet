@@ -77,7 +77,7 @@ class InsertFromSelect(Executable, ClauseElement):
     def __init__(self, table, select, destination=None):
         self.table = table
         self.select = select
-        self.destination = destination or self.table.c.keys()
+        self.destination = destination or list(self.table.c.keys())
 
 
 @compiles(InsertFromSelect)
@@ -138,12 +138,12 @@ def visit_create_function(element, compiler, **kw):
     if 'as_trigger' in kw:
         return '%s()' % fn_name
     params = []
-    for name, type in element.args.items():
-        if not isinstance(type, basestring):
+    for name, type in list(element.args.items()):
+        if not isinstance(type, str):
             type = compiler.process(type, **kw)
         params.append('%s %s' % (name, type))
     return_type = element.return_type
-    if not isinstance(return_type, basestring):
+    if not isinstance(return_type, str):
         return_type = compiler.process(type, **kw)
     result = ('CREATE FUNCTION %s (%s) RETURNS %s as $fn_body$ \n' %
               (fn_name, ','.join(params), return_type))
@@ -163,7 +163,7 @@ class CreateTrigger(Executable, ClauseElement):
         self.name = name
         self.when = when
         self.operations = operations
-        if isinstance(self.operations, basestring):
+        if isinstance(self.operations, str):
             self.operations = [self.operations]
         self.table = table
         self.level = level
@@ -240,7 +240,7 @@ class NamingConvention(object):
         if len(splitted) == 2:
             # It may be a level
             if splitted[0] in cube.d:
-                for hierarchy in cube.d[splitted[0]].h.values():
+                for hierarchy in list(cube.d[splitted[0]].h.values()):
                     if splitted[1] in hierarchy.l:
                         return hierarchy.l[splitted[1]]
 
@@ -291,7 +291,7 @@ def reflect_aggregates(cube, naming_convention=NamingConvention):
     The sqlalchemy metadata should have been populated beforehand (via
     "reflect")
     """
-    for table in cube.alchemy_md.tables.values():
+    for table in list(cube.alchemy_md.tables.values()):
         agg = table_to_aggregate(cube, table, naming_convention)
         if agg is not None:
             cube.aggregates.append(agg)
@@ -337,13 +337,13 @@ class AggTriggerBody(ClauseElement):
 
     def pk_values(self):
         primary_keys = {}
-        for name, expr in self.agg.levels.items():
+        for name, expr in list(self.agg.levels.items()):
             primary_keys[expr.name] = self.new_row.c[expr.name]
         return primary_keys
 
     def build_filter_clause(self):
         filter_clause = []
-        for name, expr in self.agg.levels.items():
+        for name, expr in list(self.agg.levels.items()):
             filter_clause.append(self.new_row.c[expr.name] ==
                                  self.agg_row.c[expr.name])
         return and_(*filter_clause)
@@ -352,8 +352,8 @@ class AggTriggerBody(ClauseElement):
         agg_column_names = [col.name for col in self.agg.selectable.c]
         from_obj = (self.new_row.join(self.agg.selectable,
                                       onclause=self.build_filter_clause()))
-        values = sorted(self.transformations.values() +
-                        self.pk_values().values(),
+        values = sorted(list(self.transformations.values()) +
+                        list(self.pk_values().values()),
                         key=lambda x: agg_column_names.index(x.name))
         return (select(values, from_obj=from_obj)
                 .correlate(self.trigger_newquery, self.agg.selectable))
@@ -366,7 +366,7 @@ class AggTriggerBody(ClauseElement):
 
     def _pk_values_from_variable(self):
         filter_clause = {}
-        for name, expr in self.agg.levels.items():
+        for name, expr in list(self.agg.levels.items()):
             filter_clause[expr.name] = literal_column(
                 'temp_row_for_update."%s"' % expr.name)
         return filter_clause
@@ -374,7 +374,7 @@ class AggTriggerBody(ClauseElement):
     def update_stmt(self):
         pk_values = self._pk_values_from_variable()
         conditions = []
-        for key, value in pk_values.iteritems():
+        for key, value in pk_values.items():
             conditions.append(value == self.agg_row.c[key])
         return (update(self.agg.selectable)
                 .values(self._values_from_variable())
@@ -384,7 +384,7 @@ class AggTriggerBody(ClauseElement):
         all_values = self._values_from_variable()
         all_values.update(self._pk_values_from_variable())
         cols = []
-        for key in self.agg.selectable.c.keys():
+        for key in list(self.agg.selectable.c.keys()):
             cols.append(all_values[key].label(key))
         return InsertFromSelect(
             self.agg.selectable,
@@ -401,7 +401,7 @@ class AggInsertTrigger(AggTriggerBody):
 
     def get_transformations(self, measures):
         transformations = {}
-        for name, expr in measures.items():
+        for name, expr in list(measures.items()):
             measure = measures[name]
             transformations[expr.name] = (measure.agg.accumulator(
                 expr.name,
@@ -426,7 +426,7 @@ class AggUpdateTrigger(AggTriggerBody):
             self.cube.selectable,
             self.trigger_old).alias()
         self.old_row = AccumulatorRow(self.trigger_oldquery, self.agg)
-        for name, expr in measures.items():
+        for name, expr in list(measures.items()):
             measure = measures[name]
             transformations[expr.name] = (measure.agg.accumulator(
                 expr.name,
@@ -501,7 +501,7 @@ class AggBuilder(object):
         if query.orders:
             raise ValueError('An aggregate query MUST NOT contain any order')
         for measure in query.measures:
-            if measure not in query.cuboid.m.values():
+            if measure not in list(query.cuboid.m.values()):
                 raise ValueError(
                     'An aggregate query MUST NOT contain'
                     'any measure not defined on the cube itself')
@@ -553,8 +553,8 @@ class AggBuilder(object):
         fact_count_column_name = cube.fact_count_measure.name
         query = self.query._generate()
         query.measures.append(CountMeasure(fact_count_column_name))
-        axes = filter(lambda x: not isinstance(x, AllLevel), self.query.axes)
-        measures = filter(lambda x: type(x) == Measure, self.query.measures)
+        axes = [x for x in self.query.axes if not isinstance(x, AllLevel)]
+        measures = [x for x in self.query.measures if type(x) == Measure]
         table_name = self.naming_convention.build_table_name(self.query.axes,
                                                              measures)
         base_agg = cube._find_best_agg(query.parts)
@@ -572,7 +572,7 @@ class AggBuilder(object):
             measure_columns.append(sql_query.c[measure.name].label(label))
 
         # Create table
-        sql_query = select(axis_columns.values() + measure_columns +
+        sql_query = select(list(axis_columns.values()) + measure_columns +
                            [fact_count_col])
         conn = sql_query.bind.connect()
         tr = conn.begin()
@@ -590,9 +590,9 @@ class AggBuilder(object):
         # Add PK and FK constraints
         if axis_columns:
             pk = PrimaryKeyConstraint(*[table.c[col.key]
-                                        for axis, col in axis_columns.items()])
+                                        for axis, col in list(axis_columns.items())])
             conn.execute(AddConstraint(pk))
-        for axis, column in axis_columns.items():
+        for axis, column in list(axis_columns.items()):
             if isinstance(axis, (ComputedLevel, AllLevel)):
                 # DO NOT add foreign key for computed and all levels!
                 continue
@@ -602,7 +602,7 @@ class AggBuilder(object):
                                       deferrable=True)
             conn.execute(AddConstraint(fk))
         axes = {axis: table.c[column.name] for axis, column in
-                axis_columns.items()}
+                list(axis_columns.items())}
         # Append the aggregate definition to the cube
         agg = Aggregate(table, axes,
                         {measure: table.c[measure.name]
@@ -613,7 +613,7 @@ class AggBuilder(object):
             self.build_trigger(conn, base_agg, sql_query, agg,
                                self.naming_convention)
         if with_indexes:
-            for column in axis_columns.values():
+            for column in list(axis_columns.values()):
                 Index(('ix_%s_%s' % (table.name, column.key))[:63],
                       table.c[column.key]).create(bind=conn)
         tr.commit()

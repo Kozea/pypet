@@ -9,7 +9,7 @@ UNKNOWN_VALUE = object()
 
 
 def table(name_or_table, metadata):
-    if isinstance(name_or_table, basestring):
+    if isinstance(name_or_table, str):
         table = metadata.tables.get(name_or_table, None)
         if table is None:
             raise ValueError(
@@ -19,7 +19,7 @@ def table(name_or_table, metadata):
 
 
 def column(name_or_column, table):
-    if isinstance(name_or_column, basestring):
+    if isinstance(name_or_column, str):
         column = getattr(table.c, name_or_column, None)
         if column is None:
             raise ValueError(
@@ -89,9 +89,8 @@ class MetaLevel(MetaDeclarative):
             metadata=metadata)
 
 
-class Level(Declarative):
+class Level(Declarative, metaclass=MetaLevel):
     """Declarative level with instance counter"""
-    __metaclass__ = MetaLevel
 
 
 class MetaMeasure(MetaDeclarative):
@@ -111,9 +110,8 @@ class MetaMeasure(MetaDeclarative):
             metadata=metadata)
 
 
-class Measure(Declarative):
+class Measure(Declarative, metaclass=MetaMeasure):
     """Declarative measure with instance counter"""
-    __metaclass__ = MetaMeasure
 
     @staticmethod
     def _make_instance(cls, *args, **kwargs):
@@ -123,9 +121,8 @@ class Measure(Declarative):
         return pypet.Measure(*args, **kwargs)
 
 
-class RelativeMeasure(Declarative):
+class RelativeMeasure(Declarative, metaclass=MetaMeasure):
     """Relative Declarative measure."""
-    __metaclass__ = MetaMeasure
 
     @staticmethod
     def _make_instance(cls, *args, **kwargs):
@@ -164,9 +161,8 @@ class MetaHierarchy(MetaDeclarative):
         return hierarchy
 
 
-class Hierarchy(Declarative):
+class Hierarchy(Declarative, metaclass=MetaHierarchy):
     """Declarative hierarchy"""
-    __metaclass__ = MetaHierarchy
 
 
 class MetaDimension(MetaDeclarative):
@@ -189,7 +185,7 @@ class MetaDimension(MetaDeclarative):
 
         if len(default_levels):
             levels = [level for _, level
-                      in sorted(default_levels.items(),
+                      in sorted(list(default_levels.items()),
                         key=lambda x: x[0])]
             default_hierarchy = pypet.Hierarchy('default', levels)
             default_hierarchy._count = -1
@@ -207,9 +203,8 @@ class MetaDimension(MetaDeclarative):
         return dimension
 
 
-class Dimension(Declarative):
+class Dimension(Declarative, metaclass=MetaDimension):
     """Declarative dimension"""
-    __metaclass__ = MetaDimension
 
 
 class MetaCube(MetaDeclarative):
@@ -263,6 +258,5 @@ class MetaCube(MetaDeclarative):
         return cube
 
 
-class Cube(Declarative):
+class Cube(Declarative, metaclass=MetaCube):
     """Declarative measure"""
-    __metaclass__ = MetaCube

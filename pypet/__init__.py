@@ -15,6 +15,7 @@ from pypet.internals import (ValueSelect, IdSelect, OverSelect, FilterSelect,
                              OrderSelect, join_table_with_query, compile)
 
 from pypet import aggregates
+from functools import reduce
 
 
 def wrap_const(const):
@@ -39,8 +40,8 @@ def wrap_filter(filter):
 
 def operator(fun):
     @wraps(fun)
-    def op_fun(self, other):
-        return fun(self, wrap_const(other))
+    def op_fun(self, *args):
+        return fun(self, *(wrap_const(other) for other in args))
     return op_fun
 
 def is_agg(column):
@@ -70,6 +71,9 @@ class MetaData(dict):
 
     def __getattr__(self, key):
         return self.get(key, None)
+
+
+
 
 
 class Measure(CubeObject):
@@ -158,9 +162,9 @@ class Measure(CubeObject):
         return ComputedMeasure(name, operators.sub, (self, other))
 
     @operator
-    def __div__(self, other):
+    def __truediv__(self, other):
         name = '%s / %s' % (self.name, other.name)
-        return ComputedMeasure(name, operators.div, (self, other))
+        return ComputedMeasure(name, operators.truediv, (self, other))
 
     def over(self, *levels):
         name = '%s OVER (%s)' % (self.name, ','.join(
@@ -180,6 +184,21 @@ class Measure(CubeObject):
     @_generative
     def replace_expr(self, expression):
         self.expression = expression
+
+
+for op_name in ('__eq__', '__lt__', '__le__', '__gt__', '__ge__', '__ne__', 'between_op'):
+    def dumb_closure():
+        sql_op = getattr(operators, op_name.strip('_'))
+        @operator
+        def op(self, *args):
+            return Filter(sql_op, self, *args)
+        return op
+    op = dumb_closure()
+    op.__name__ == op_name
+    if op_name.endswith('_op'):
+        op_name = op_name[:-3]
+    setattr(Measure, op_name, op)
+
 
 
 
@@ -246,14 +265,14 @@ class RelativeMeasure(Measure):
         order_score = 0
         over_dims = []
         order_dims = []
-        over_scores, over_dims = zip(*[
+        over_scores, over_dims = list(zip(*[
             over_level._score(aggregate)
-            for over_level in self.over_levels]) or ([1], [])
+            for over_level in self.over_levels])) or ([1], [])
         over_dims = [d for dim in over_dims for d in dim]
         over_score = min(over_scores)
-        order_scores, order_dims = zip(
+        order_scores, order_dims = list(zip(
             *[order_level._score(aggregate)
-              for order_level in self.order_levels]) or ([1], [])
+              for order_level in self.order_levels])) or ([1], [])
         order_score = min(order_scores)
         order_dims = [d for dim in order_dims for d in dim]
         measure_score, measure_dims = self.measure._score(aggregate)
@@ -370,7 +389,7 @@ class ComputedMeasure(Measure):
                                self.agg)
 
     def _score(self, aggregate):
-        scores, dims = zip(*[op._score(aggregate) for op in self.operands])
+        scores, dims = list(zip(*[op._score(aggregate) for op in self.operands]))
         dims = [d for dim in dims for d in dim]
         return min(scores), dims
 
@@ -462,7 +481,7 @@ class Filter(CubeObject):
         self.operator = operator
 
     def _score(self, aggregate):
-        scores, dims = zip(*[op._score(aggregate) for op in self.operands])
+        scores, dims = list(zip(*[op._score(aggregate) for op in self.operands]))
         dims = [d for dim in dims for d in dim]
         return min(scores), dims
 
@@ -484,10 +503,20 @@ class Filter(CubeObject):
         return (isinstance(other, Filter) and self.operator == other.operator
                 and self.operands == other.operands)
 
-    def _build_sub_selects_and_deps(self, cuboid):
-        sub_operands = [sel for clause in self.operands
-                        for sel in clause._as_selects(cuboid)
-                        if not isinstance(sel, LabelSelect)]
+    def __or__(self, other):
+        return OrFilter(self, other)
+
+    def __and__(self, other):
+        return AndFilter(self, other)
+
+    def _build_sub_selects_and_deps(self, cuboid, _all=False):
+        if _all:
+            sub_operands = [sub
+                            for clause in self.operands
+                            for sub in clause._as_selects(cuboid)]
+        else:
+            sub_operands = [clause._as_selects(cuboid)[0]
+                            for clause in self.operands]
         for sub in sub_operands:
             if isinstance(sub, FilterSelect):
                 sub.embedded = True
@@ -497,11 +526,10 @@ class Filter(CubeObject):
 class AndFilter(Filter):
 
     def __init__(self, *operands):
-        super(AndFilter, self).__init__(and_, *operands)
+        super(AndFilter, self).__init__(and_, *(wrap_filter(op) for op in operands))
 
     def _as_selects(self, cuboid):
-        sub_operands, deps = self._build_sub_selects_and_deps(cuboid)
-        return [sub for sub in sub_operands if sub.where_clause is not None]
+        sub_operands, deps = self._build_sub_selects_and_deps(cuboid, _all=True)
         return [self._select_class(self, where_clause=and_(
             *[sub.where_clause
                 for sub in sub_operands if sub.where_clause is not None]),
@@ -519,7 +547,7 @@ class AndFilter(Filter):
 class OrFilter(Filter):
 
     def __init__(self, *operands):
-        super(OrFilter, self).__init__(or_, *operands)
+        super(OrFilter, self).__init__(or_, *(wrap_filter(op) for op in operands))
 
     def _adapt(self, aggregate):
         return self.__class__(*[clause._adapt(aggregate)
@@ -530,7 +558,7 @@ class OrFilter(Filter):
                                 for clause in self.operands])
 
     def _as_selects(self, cuboid):
-        sub_operands, deps = self._build_sub_selects_and_deps(cuboid)
+        sub_operands, deps = self._build_sub_selects_and_deps(cuboid, _all=True)
         return [self._select_class(self, where_clause=or_(
             *[sub.where_clause
                 for sub in sub_operands if sub.where_clause is not None]),
@@ -568,19 +596,13 @@ class Member(CutPoint):
                 if isinstance(sub, IdSelect)]
         assert len(subs) == 1
         selects = [LabelSelect(self, column_clause=self.label_expression,
-                               name='%s_label' % self._label_for_select,
+                               name=self._label_label_for_select,
                                joins=[self.level.label_column.table],
                                is_constant=True),
                    IdSelect(self, column_clause=self.id_expr,
                             joins=[self.level.column.table],
                             name=self._label_for_select, is_constant=True)]
         return selects
-
-    def __eq__(self, other):
-        if isinstance(other, Member):
-            return (self.id == other.id and
-                    self.level == other.level)
-        return False
 
     @property
     def children_query(self):
@@ -606,6 +628,11 @@ class Member(CutPoint):
         return self.level._label_for_select
 
     @property
+    def _label_label_for_select(self):
+        return self.level._label_label_for_select
+
+
+    @property
     def dimension(self):
         """Returns this level dimension."""
         return self.level.dimension
@@ -629,12 +656,14 @@ class Level(CutPoint):
         self.parent_level = None
         self.hierarchy = None
         self.metadata = metadata or MetaData()
+        self._level_key = None
+        self._level_label_key = None
 
     def bind(self, hierarchy):
         """Late binding of level to hierarchies."""
         self.hierarchy = hierarchy
-        levels = hierarchy.levels.values()
-        my_idx = levels.index(self)
+        levels = list(hierarchy.levels.values())
+        my_idx = hierarchy.level_index(self)
         if my_idx > 0:
             self.parent_level = levels[my_idx - 1]
         if my_idx + 1 < len(levels):
@@ -662,24 +691,22 @@ class Level(CutPoint):
                 base_level = agglevel
                 score = 1
                 while(base_level is not None):
-                    if base_level == self:
+                    if ((base_level.dimension == self.dimension) and
+                            self.name == base_level.name):
                         return score, [dim]
 
-                    same_hierarchy_levels = self.hierarchy.levels.values()
-                    if base_level in same_hierarchy_levels:
-                        idx = same_hierarchy_levels.index(base_level)
-                        if idx >= 1:
-                            base_level = same_hierarchy_levels[idx - 1]
-                        else:
-                            base_level = None
-                    else:
-                        base_level = None
+                    same_hierarchy_levels = list(self.hierarchy.levels.values())
+
+                    for idx, l in enumerate(same_hierarchy_levels):
+                        if l.name == base_level.name:
+                            if idx >= 1:
+                                base_level = same_hierarchy_levels[idx - 1]
+                            else:
+                                base_level = None
+                                break
+                    score *= 0.5
                     score *= 0.5
         return -1, [dim]
-
-    @property
-    def _label_for_select(self):
-        return '%s_%s' % (self.dimension.name, self.name)
 
     @_generative
     def replace_expr(self, expr, label_column=None):
@@ -706,9 +733,21 @@ class Level(CutPoint):
 
     @property
     @_generative
-    def label_level(self):
-        self.id_column = self.label_column
+    def label_only(self):
         self.is_label = True
+
+    @_generative
+    def label(self, label):
+        self._level_label_key = label
+
+    @property
+    def _label_label_for_select(self):
+        return self._level_label_key or '%s_label' % self._label_for_select
+
+    @property
+    def _label_for_select(self):
+        return self._level_key or '%s_%s' % (self.dimension.name, self.name)
+
 
     def _as_selects(self, cuboid=None):
         sub_selects = []
@@ -719,7 +758,7 @@ class Level(CutPoint):
                          for elem in alist.joins]
         label_select = LabelSelect(self,
                             column_clause=self._label_column,
-                            name='%s_label' % self._label_for_select,
+                            name=self._label_label_for_select,
                             dependencies=[],
                             joins=sub_joins + [self.column.table,
                                                self.label_column.table])
@@ -751,7 +790,7 @@ class Level(CutPoint):
         cc = ColumnCollection(*query.inner_columns)
         if self._label_for_select in cc:
             dim_expr = cc[self._label_for_select]
-            label_col = '%s_label' % self._label_for_select
+            label_col = self._label_label_for_select
             if label_col in cc:
                 column_expr = cc[label_col]
                 label_expr = lambda x: x
@@ -772,10 +811,20 @@ class Level(CutPoint):
         return [Member(self, value.id, value.label)
                 for value in self.members_query.distinct().execute()]
 
-    def __eq__(self, other):
-        return (isinstance(other, Level) and
-                other.dimension == self.dimension and
-                self.name == other.name)
+
+for op_name in ('__eq__', 'like_op', 'ilike_op', '__ne__'):
+    def dumb_closure():
+        sql_op = getattr(operators, op_name.strip('_'))
+        @operator
+        def op(self, *args):
+            return Filter(sql_op, self, *args)
+        return op
+    op = dumb_closure()
+    op.__name__ == op_name
+    if op_name.endswith('_op'):
+        op_name = op_name[:-3]
+    setattr(Level, op_name, op)
+
 
 
 class ComputedLevel(Level):
@@ -814,7 +863,7 @@ class ComputedLevel(Level):
         dep = IdSelect(self, column_clause=self.column)
         return [IdSelect(self, name=self._label_for_select, column_clause=col,
                          dependencies=[dep]),
-                LabelSelect(self, name='%s_label' % self._label_for_select,
+                LabelSelect(self, name=self._label_label_for_select,
                             column_clause=self._label_column,
                             dependencies=[dep])]
 
@@ -830,6 +879,8 @@ class AllLevel(Level):
         self.parent_level = None
         self.metadata = metadata or MetaData()
         self.column = None
+        self._level_key = name
+        self._level_label_key = label
 
     def _as_selects(self, cuboid=None):
         return [LabelSelect(self, name=self._label_for_select + '_label',
@@ -868,8 +919,13 @@ class Hierarchy(object):
     def bind(self, dimension):
         """Late binding of this hierarchy to a dimension."""
         self.dimension = dimension
-        for level in self.levels.values():
+        for level in list(self.levels.values()):
             level.bind(self)
+
+    def level_index(self, searched):
+        for idx, level in enumerate(self.levels):
+            if level == searched.name:
+                return idx
 
     @property
     def l(self):
@@ -921,10 +977,10 @@ class ResultProxy(OrderedDict):
                 return [m.name for m in query.measures]
 
             def __missing__(self, key):
-                if key not in self.keys():
+                if key not in list(self.keys()):
                     raise KeyError('Not a valid value!')
                 self[key] = self.measure_dict[key].agg.py_impl([
-                    child.scalar_value[key] for child in this.values()])
+                    child.scalar_value[key] for child in list(this.values())])
                 return self[key]
 
         self.scalar_value = default_scalar_value()
@@ -938,15 +994,15 @@ class ResultProxy(OrderedDict):
             self.scalar_value = list(lines)[0]
             return result
         dim_key = self.dims[0]._label_for_select
+        dim_label = self.dims[0]._label_label_for_select
         next_dims = self.dims[1:]
         append = lambda label, lines: ResultProxy(
             self.query.axis(*next_dims), lines, label)
 
         def key_func(x):
-            label_key = '%s_label' % dim_key
             key = getattr(x, dim_key)
-            if label_key in x:
-                label = x[label_key]
+            if dim_label in x:
+                label = x[dim_label]
             else:
                 label = key
             return key, label
@@ -959,7 +1015,7 @@ class ResultProxy(OrderedDict):
         return result
 
     def by_label(self):
-        return OrderedDict((value.label, value) for value in self.values())
+        return OrderedDict((value.label, value) for value in list(self.values()))
 
     def __getitem__(self, key):
         try:
@@ -1121,14 +1177,14 @@ class Aggregate(_Generative):
         measures = dict(measures)
         measures[self.fact_count_measure] = self.fact_count_column
         self.measures_expr = OrderedDict((measure.name, expr)
-                for measure, expr in measures.items())
+                for measure, expr in list(measures.items()))
         self.measures = OrderedDict((measure.name, measure)
-                for measure, expr in measures.items())
+                for measure, expr in list(measures.items()))
         self.levels = levels
 
 
     def score(self, things):
-        scores, dims = zip(*[thing._score(self) for thing in things])
+        scores, dims = list(zip(*[thing._score(self) for thing in things]))
         if any(score < 0 for score in scores):
             return -100
         dims = set(d for dim in dims for d in dim)
@@ -1138,7 +1194,7 @@ class Aggregate(_Generative):
         factor = 0
         for level in self.levels:
             if level.dimension in not_used_dims:
-                factor += level.hierarchy.levels.values().index(level)
+                factor += level.hierarchy.level_index(level)
         return sum(scores) + 0.3 ** factor
 
 
@@ -1164,8 +1220,8 @@ class Cube(_Generative):
     @property
     def query(self):
         return Query(self, [dim.default_level for dim in
-            self.dimensions.values()],
-            self.measures.values())
+            list(self.dimensions.values())],
+            list(self.measures.values()))
 
     @property
     def selectable(self):
@@ -1182,9 +1238,9 @@ class Cube(_Generative):
     def _find_best_agg(self, parts):
         agg_scores = ((agg, agg.score(parts))
                 for agg in self.aggregates)
-        best_agg, score = reduce(lambda (x, scorex), (y, scorey): (x, scorex)
-                if scorex >= scorey
-                else (y, scorey), agg_scores, (self, 0))
+        best_agg, score = reduce(lambda x, y: x
+                                 if x[1] >= y[1]
+                else y, agg_scores, (self, 0))
         return best_agg
 
     def best_agg_level(self, level):

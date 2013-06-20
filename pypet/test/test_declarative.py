@@ -35,7 +35,7 @@ def test_hierarchy():
         l3 = Level()
 
     assert isinstance(TimeHierarchy, pypet.Hierarchy)
-    assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert list(TimeHierarchy.levels.keys()) == ['All', 'l1', 'l2', 'l3']
     assert TimeHierarchy.metadata == {
         'label': "This is time",
         'thing': "This is one thing"}
@@ -44,7 +44,6 @@ def test_hierarchy():
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)
 
         assert getattr(TimeHierarchy, key).name == key
-        assert getattr(TimeHierarchy, key) == getattr(TimeHierarchy, key)
 
 
 def test_dimension():
@@ -72,18 +71,16 @@ def test_dimension():
 
     assert isinstance(TimeDimension.h1, pypet.Hierarchy)
     assert isinstance(TimeDimension.h1.l1, pypet.Level)
-    assert TimeDimension.h1.l1 == TimeDimension.h1.l1
-    assert TimeDimension.h1.l1 != TimeDimension.h2.l1_2
     assert TimeDimension.h1.name == 'h1'
     assert TimeDimension.h1.l1.name == 'l1'
     assert TimeDimension.metadata == {'time': 'Label it is'}
 
-    assert TimeDimension.h1.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert TimeDimension.h2.levels.keys() == ['All', 'l1_2', 'l2_2', 'l3_2']
+    assert list(TimeDimension.h1.levels.keys()) == ['All', 'l1', 'l2', 'l3']
+    assert list(TimeDimension.h2.levels.keys()) == ['All', 'l1_2', 'l2_2', 'l3_2']
     assert len(TimeDimension.hierarchies) == 2
-    assert len([level for h in TimeDimension.hierarchies.values()
+    assert len([level for h in list(TimeDimension.hierarchies.values())
            for level in h.levels]) == 8
-    assert TimeDimension.h.keys() == ['h1', 'h2']
+    assert list(TimeDimension.h.keys()) == ['h1', 'h2']
     assert TimeDimension.h1 != SpaceDimension.h1
     assert TimeDimension.h1.l1 != SpaceDimension.h1.l1
 
@@ -105,10 +102,10 @@ def test_level_in_dimension():
     assert len(TimeDimension.h1.l) == 4
     assert hasattr(TimeDimension, 'default')
     assert len(TimeDimension.default.l) == 5
-    assert TimeDimension.default.l.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
+    assert list(TimeDimension.default.l.keys()) == ['All', 'l1', 'l2', 'l3', 'l4']
     assert hasattr(TimeDimension.default, 'l1')
     assert hasattr(TimeDimension.default, 'l2')
-    assert TimeDimension.h.keys() == ['default', 'h1']
+    assert list(TimeDimension.h.keys()) == ['default', 'h1']
 
 
 class TestCube(BaseTestCase):
@@ -148,8 +145,8 @@ class TestCube(BaseTestCase):
             price = Measure()
             quantity = Measure('qty', agg=aggregates.sum)
 
-        assert TestCube.d.keys() == ['store', 'product', 'time']
-        assert TestCube.m.keys() == ['price', 'quantity', 'FACT_COUNT']
+        assert list(TestCube.d.keys()) == ['store', 'product', 'time']
+        assert list(TestCube.m.keys()) == ['price', 'quantity', 'FACT_COUNT']
         assert isinstance(TestCube, pypet.Cube)
         assert isinstance(TestCube.price, pypet.Measure)
         assert TestCube.price.name == 'price'
@@ -242,10 +239,10 @@ def fail_inheritence_hierarchy():
         l4 = Level()
 
     assert isinstance(TimeHierarchy, pypet.Hierarchy)
-    assert TimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
-    assert SubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3']
+    assert list(TimeHierarchy.levels.keys()) == ['All', 'l1', 'l2', 'l3']
+    assert list(SubTimeHierarchy.levels.keys()) == ['All', 'l1', 'l2', 'l3']
     assert hasattr(SubSubTimeHierarchy, 'l4')
-    assert SubSubTimeHierarchy.levels.keys() == ['All', 'l1', 'l2', 'l3', 'l4']
+    assert list(SubSubTimeHierarchy.levels.keys()) == ['All', 'l1', 'l2', 'l3', 'l4']
 
     for key in ('l1', 'l2', 'l3'):
         assert isinstance(getattr(TimeHierarchy, key), pypet.Level)

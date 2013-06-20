@@ -1,12 +1,10 @@
 from sqlalchemy.sql import func, case, cast
 from sqlalchemy import types
 import abc
-import __builtin__
+import builtins
 
 
-class Aggregator(object):
-
-    __metaclass__ = abc.ABCMeta
+class Aggregator(object, metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def __call__(self, column_clause, cuboid):
@@ -25,7 +23,7 @@ class identity_agg(Aggregator):
     def __call__(self, column_clause, cuboid=None):
         return column_clause
 
-    def __nonzero__(self):
+    def __bool__(self):
         return False
 
     def py_impl(self, collection):
@@ -47,7 +45,7 @@ class avg(Aggregator):
         return func.avg(column_clause)
 
     def py_impl(self, collection):
-        return __builtin__.sum(collection) / len(collection)
+        return builtins.sum(collection) / len(collection)
 
     def accumulator(self, column_name, new_row, agg_row, old_row=None):
         new_count = new_row.count
@@ -69,7 +67,7 @@ class sum(Aggregator):
         return func.sum(column_clause)
 
     def py_impl(self, collection):
-        return __builtin__.sum(collection)
+        return builtins.sum(collection)
 
     def accumulator(self, column_name, new_row, agg_row, old_row=None):
         total_sum = new_row.c[column_name]

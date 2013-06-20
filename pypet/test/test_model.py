@@ -1,5 +1,5 @@
 from pypet.test import BaseTestCase
-from pypet import Aggregate
+from pypet import Aggregate, OrFilter, AndFilter
 from pypet import aggregates
 from sqlalchemy.sql import func
 
@@ -28,16 +28,16 @@ class TestModel(BaseTestCase):
 
     def test_result(self):
         results = self.cube.query.execute()
-        assert results.keys() == ['All']
-        assert results['All'].keys() == ['All']
-        assert results['All']['All'].keys() == ['All']
+        assert list(results.keys()) == ['All']
+        assert list(results['All'].keys()) == ['All']
+        assert list(results['All']['All'].keys()) == ['All']
         assert results['All']['All']['All'].Price == 110000
         results = (self.cube.query.slice(self.cube.d['time'].l['year'])
                     .execute())
-        assert results['All']['All'].by_label().keys() == ['2009', '2010',
+        assert list(results['All']['All'].by_label().keys()) == ['2009', '2010',
             '2011']
         results = self.cube.query.axis(self.cube.d['time'].l['year']).execute()
-        assert results.by_label().keys() == ['2009', '2010', '2011']
+        assert list(results.by_label().keys()) == ['2009', '2010', '2011']
 
     def test_measures(self):
         computed = self.cube.measures['Price']
@@ -48,9 +48,9 @@ class TestModel(BaseTestCase):
         query._as_sql()
         result = query.execute().by_label()
         self.compare_agg(query)
-        assert set(result.keys()) == set([u'ACME.ca', u'ACME.de',
-            u'ACME.fr', u'ACME.us', u'Food Mart.ca', u'Food Mart.de',
-            u'Food Mart.fr', u'Food Mart.us'])
+        assert set(result.keys()) == set(['ACME.ca', 'ACME.de',
+            'ACME.fr', 'ACME.us', 'Food Mart.ca', 'Food Mart.de',
+            'Food Mart.fr', 'Food Mart.us'])
 
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
 
@@ -60,9 +60,9 @@ class TestModel(BaseTestCase):
         query = self.cube.query.measure(computed)
         self.compare_agg(query)
         result = query.execute()
-        assert result.keys() == ['All']
-        assert result['All'].keys() == ['All']
-        assert result['All']['All'].keys() == ['All']
+        assert list(result.keys()) == ['All']
+        assert list(result['All'].keys()) == ['All']
+        assert list(result['All']['All'].keys()) == ['All']
         assert result['All']['All']['All'].measure == 110000
 
         computed = ((computed / 1000).aggregate_with(aggregates.sum)
@@ -182,8 +182,8 @@ class TestModel(BaseTestCase):
                     .member_by_label('Europe')))
         result = query2.execute().by_label()
         self.compare_agg(query2)
-        assert set(result.keys()) == set([u'ACME.de', u'ACME.fr',
-            u'Food Mart.de', u'Food Mart.fr'])
+        assert set(result.keys()) == set(['ACME.de', 'ACME.fr',
+            'Food Mart.de', 'Food Mart.fr'])
         assert result['ACME.fr']['CA_percent_by_region'] == 15.1202749140893
         query = (self.cube.query
                     .axis(self.cube.d['time'].l['year'])
@@ -198,9 +198,62 @@ class TestModel(BaseTestCase):
                         self.cube.d['time'].l['year']['2009-01-01']))
         result = query.execute().by_label()
         assert set(result.keys()) == set(['Europe'])
+        query = self.cube.query.axis(self.cube.d['store'].l['store']).filter(
+            OrFilter(self.cube.d['store'].l['country'][1],
+                      self.cube.d['store'].l['country'][2]))
+        result = query.execute().by_label()
+        assert set(result.keys()) == set([
+            'Food Mart.fr', 'ACME.fr', 'Food Mart.de', 'ACME.de'])
+
         query2 = query2.filter(self.cube.d['time'].l['year']['2010-01-01'])
         result = query2.execute().by_label()
         assert result['Food Mart.de']['CA_percent_by_region'] == 51.2820512820513
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] > 10000))
+        assert list(query.execute().keys()) == [3, 4, 5, 6]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] < 10000))
+        assert list(query.execute().keys()) == [1, 2, 7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] == 6400))
+        assert list(query.execute().keys()) == [7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] <= 6400))
+        assert list(query.execute().keys()) == [7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.m['Price'] >= 6400))
+        assert list(query.execute().keys()) == [1, 2, 3, 4, 5, 6, 7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter(self.cube.m['Price'] != 6400))
+        assert list(query.execute().keys()) == [1, 2, 3, 4, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter(self.cube.m['Price'] != 6400)
+                .filter(self.cube.m['Price'] != 15000))
+        assert list(query.execute().keys()) == [1, 2, 3, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                .filter((self.cube.m['Price'] != 6400) &
+                        (self.cube.m['Price'] != 15000)))
+        assert list(query.execute().keys()) == [1, 2, 3, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(((self.cube.m['Price'].between(6400, 10000)))))
+        assert list(query.execute().keys()) == [1, 2, 7]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(((self.cube.m['Price'] <= 6400) |
+                         (self.cube.m['Price'] > 10000)) &
+                         (self.cube.m['Price'] != 6400)))
+        assert list(query.execute().keys()) == [3, 4, 5, 6, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'] == 1))
+        assert list(query.execute().keys()) == [1, 2, 3, 4]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'].label_only == 'Europe'))
+        assert list(query.execute().keys()) == [1, 2, 3, 4]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['region'].label_only.like('%%mer%%')))
+        assert list(query.execute().keys()) == [5, 6, 7, 8]
+        query = (self.cube.query.axis(self.cube.d['store'].l['store'])
+                 .filter(self.cube.d['store'].l['store'].label_only.ilike('%%mart%%')))
+        assert list(query.execute().keys()) == [3, 4, 6, 8]
 
 
     def test_top(self):
@@ -208,7 +261,7 @@ class TestModel(BaseTestCase):
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2011-01', u'2011-05', u'2010-11']
+        assert list(res.keys()) == ['2011-01', '2011-05', '2010-11']
         mes = self.cube.measures['Price'].percent_over(
                     self.cube.d['time'].l['year'])
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
@@ -216,7 +269,7 @@ class TestModel(BaseTestCase):
                 .top(3, self.cube.measures['Price']))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2011-01', u'2011-05', u'2010-11']
+        assert list(res.keys()) == ['2011-01', '2011-05', '2010-11']
         query = (self.cube.query.axis(self.cube.d['time'].l['month'])
                 .measure(mes)
                 .top(2, mes, partition_by=self.cube.d['time'].l['year']))
@@ -230,7 +283,7 @@ class TestModel(BaseTestCase):
                 .top(3, mes))
         res = query.execute().by_label()
         self.compare_agg(query)
-        assert res.keys() == [u'2010-11', u'2011-01', u'2009-08']
+        assert list(res.keys()) == ['2010-11', '2011-01', '2009-08']
 
     def test_multiple_over(self):
         """Compute the 3 store/month couples that represent the highest
