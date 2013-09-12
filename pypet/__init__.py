@@ -695,7 +695,7 @@ class Level(CutPoint):
                             self.name == base_level.name):
                         return score, [dim]
 
-                    same_hierarchy_levels = list(self.hierarchy.levels.values())
+                    same_hierarchy_levels = list(base_level.hierarchy.levels.values())
 
                     for idx, l in enumerate(same_hierarchy_levels):
                         if l.name == base_level.name:
@@ -704,7 +704,6 @@ class Level(CutPoint):
                             else:
                                 base_level = None
                                 break
-                    score *= 0.5
                     score *= 0.5
         return -1, [dim]
 
