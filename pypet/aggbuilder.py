@@ -202,7 +202,7 @@ class NamingConvention(object):
     table_measure_name = measure_name
     level_name_separator = '_'
     measure_name_separator = '_'
-    fact_count_column_name = 'fact_count'
+    fact_count_column_name = 'FACT_COUNT'
     trigger_function_name = 'trigger_function_{tablename}'
     trigger_name = 'trigger_{tablename}'
     idx_name = 'idx_{tablename}_{levelname}'

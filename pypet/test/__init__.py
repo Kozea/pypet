@@ -61,7 +61,7 @@ class BaseTestCase(unittest.TestCase):
                     ForeignKey('product.product_id')),
                 Column('Unit Price', types.Float),
                 Column('Quantity', types.Integer),
-                Column('fact_count', types.Integer))
+                Column('FACT_COUNT', types.Integer))
         agg_name = ('agg_time_year_store_country_product_product'
                     '_Unit Price_Quantity')
 
@@ -74,7 +74,7 @@ class BaseTestCase(unittest.TestCase):
                     ForeignKey('product.product_id')),
                 Column('Unit Price', types.Float),
                 Column('Quantity', types.Integer),
-                Column('fact_count', types.Integer))
+                Column('FACT_COUNT', types.Integer))
 
         self.metadata.create_all()
 
@@ -218,7 +218,7 @@ class BaseTestCase(unittest.TestCase):
                     func.sum(self.facts_table.c.qty))
                     .label('Unit Price'),
                 func.sum(self.facts_table.c.qty).label('Quantity'),
-                func.sum(self.facts_table.c.qty).label('fact_count'),
+                func.sum(self.facts_table.c.qty).label('FACT_COUNT'),
                 self.facts_table.c.product_id.label('product_product'),
                 self.facts_table.c.store_id.label('store_store'),
                 func.date_trunc('month',
@@ -235,7 +235,7 @@ class BaseTestCase(unittest.TestCase):
                     func.sum(self.facts_table.c.qty))
                     .label('Unit Price'),
             func.sum(self.facts_table.c.qty).label('Quantity'),
-            func.sum(self.facts_table.c.qty).label('fact_count'),
+            func.sum(self.facts_table.c.qty).label('FACT_COUNT'),
             self.facts_table.c.product_id.label('product_product'),
             self.store_table.c.country_id.label('store_country'),
             func.date_trunc('year',
