@@ -691,19 +691,19 @@ class Level(CutPoint):
                 base_level = agglevel
                 score = 1
                 while(base_level is not None):
-                    if ((base_level.dimension == self.dimension) and
-                            self.name == base_level.name):
+                    if self == base_level:
                         return score, [dim]
 
-                    same_hierarchy_levels = list(base_level.hierarchy.levels.values())
+                    same_hierarchy_levels = list(self.hierarchy.levels.values())
 
-                    for idx, l in enumerate(same_hierarchy_levels):
-                        if l.name == base_level.name:
-                            if idx >= 1:
-                                base_level = same_hierarchy_levels[idx - 1]
-                            else:
-                                base_level = None
-                                break
+                    if base_level in same_hierarchy_levels:
+                        idx = same_hierarchy_levels.index(base_level)
+                        if idx >= 1:
+                            base_level = same_hierarchy_levels[idx - 1]
+                        else:
+                            base_level = None
+                    else:
+                        base_level = None
                     score *= 0.5
         return -1, [dim]
 
