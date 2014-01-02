@@ -4,8 +4,8 @@ from sqlalchemy.sql import (func, over, operators,
                             ColumnCollection)
 from sqlalchemy import types
 from sqlalchemy.sql.expression import (
-    literal,
-    or_, and_, ColumnClause, _Generative, _generative, _literal_as_binds)
+    literal, or_, and_, ColumnClause, _Generative, _literal_as_binds)
+from sqlalchemy.sql.base import _generative
 from collections import OrderedDict, defaultdict
 from itertools import groupby
 from functools import wraps

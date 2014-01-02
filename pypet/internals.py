@@ -1,8 +1,8 @@
-from sqlalchemy.sql import (util as sql_util,
-        ColumnCollection)
+from sqlalchemy.sql import util as sql_util, ColumnCollection
 from sqlalchemy.util import OrderedSet
 from sqlalchemy.sql.expression import (
-        and_, _Generative, _generative, func, Join)
+        and_, _Generative, func, Join)
+from sqlalchemy.sql.base import _generative
 from operator import and_ as builtin_and
 from functools import reduce
 
